@@ -1,0 +1,1510 @@
+---
+title: "Site Selection for Clearing Blackwaters"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F,
+                      warning = FALSE,
+                      message = FALSE)
+library(lubridate)
+library(sf)
+library(ggthemes)
+library(tidyverse)
+
+read_sum_feather_by_nhd_id <- function(file_path) {
+    
+    flowline_id <- str_remove(file_path, '[.]feather')
+    
+    full_path_ls <- paste0('clearing_blackwaters/data/coastal_blackwater_ls/',
+                          file_path)
+        # full_path_ls <- paste0('../data/coastal_blackwater_ls/',
+        #                   file_path)
+        
+    full_path_dswe <- paste0('clearing_blackwaters/data/coastal_blackwater_ls_dswe/',
+                            file_path)
+        # full_path_dswe <- paste0('../data/coastal_blackwater_ls_dswe/',
+        #                     file_path)
+    
+    file_dswe <- arrow::read_feather(full_path_dswe) %>%
+        filter(!is.na(dswe)) %>%
+        group_by(longitude, latitude) %>%
+        summarise(mean_dswe = mean(dswe),
+                  min_dswe = min(dswe),
+                  n = n()) %>%
+        filter(min_dswe != 0) %>%
+        # Selected this threshold by looking at the icw, should do a more systamitc look at 
+        # this. BUt should beok for now 
+        filter(mean_dswe <= 1.8,
+               n >= 50) %>%
+        ungroup()
+    
+    pixels_keep <- file_dswe %>%
+        select(longitude, latitude)
+    
+    file_ls <- arrow::read_feather(full_path_ls) 
+    
+    final_sum_file <- left_join(pixels_keep, file_ls) %>%
+        mutate(mission =  str_match(id, 'LT0[:digit:]{1}|LE0[:digit:]{1}|LC0[:digit:]{1}')) %>%
+        mutate(date = ifelse(mission == 'LC08',
+                             substr(as.character(id), 15, nchar(id)),
+                             substr(as.character(id), 17, nchar(id)))) %>%
+        mutate(date = as_date(date, '%Y%m%d')) %>%
+        select(-longitude, -latitude) %>%
+        mutate(nas = ifelse(is.na(Blue), 1, 0)) %>%
+        group_by(date, mission) %>%
+        summarise(Blue = mean(Blue, na.rm = T),
+                  Green = mean(Green, na.rm = T),
+                  Red = mean(Red, na.rm = T),
+                  Nir = mean(Nir, na.rm = T),
+                  Swir1 = mean(Swir1, na.rm = T),
+                  Swir2 = mean(Swir2, na.rm = T),
+                  occurrence = mean(occurrence, na.rm = T),
+                  nas = sum(nas, na.rm = T),
+                  n = n()) %>%
+        mutate(percent_impared = (nas/n)*100) %>%
+        mutate(nhd_id = !!flowline_id)
+
+    
+    return(final_sum_file)
+}
+
+```
+
+
+
+## How do we select a site to install sensors 
+### Criteria:
+#### Experiences saltwater intrusion (near coast) 
+#### Blackwater system (manually subset coastal systems)
+#### Experiences a seasonal change in color (green/[blue + red])
+#### Accessible (bridges to install sensors or could use a boat) 
+
+
+# Initial Analysis Methods 
+## Manually selected rivers in NC
+### Selected rivers that I thought would be large enough and have high DOC contractions 
+```{r, include=FALSE}
+flowlines_fl <- list.files('clearing_blackwaters/data/flowlines_of_interest', full.names = T)
+# flowlines_fl <- list.files('../data/flowlines_of_interest', full.names = T)
+
+
+flowlines <- tibble()
+for(i in 1:length(flowlines_fl)){
+    this_fil <- flowlines_fl[i]
+    
+    river_name <- str_split_fixed(this_fil, '/', n = Inf)[,4]
+    
+    flowline <- st_read(this_fil) %>%
+        mutate(name = !!river_name)
+    
+    flowlines <- rbind(flowlines, flowline)
+}
+
+
+icw_flowlines <- flowlines %>%
+    filter(name == 'icw')
+```
+
+```{r}
+mapview::mapview(flowlines, zcol = 'name')
+```
+
+## Calculated distance from river mouth
+```{r, include=FALSE}
+# Create column for distance on line 
+icw_flowlines_centroid <- icw_flowlines %>%
+    mutate(geometry = st_centroid(geometry))
+
+start_point <- tibble(lat = 35.550167,
+                      long = -76.479833) %>%
+    st_as_sf(coords = c('long', 'lat'), crs = 4326) %>%
+    st_transform(., st_crs(icw_flowlines))
+
+for(i in 1:nrow(icw_flowlines)) {
+    icw_flowlines_centroid[i,'position'] <- st_distance(start_point, icw_flowlines_centroid[i,])
+}
+
+icw_flowlines_centroid <- icw_flowlines_centroid %>%
+    as.data.frame() %>%
+    select(comid, position)
+
+new_tib <- tibble(comid = icw_flowlines_centroid$comid,
+                  position = icw_flowlines_centroid$position[,1])
+
+icw_flowlines <- left_join(icw_flowlines, new_tib) %>%
+    mutate(position = position/1000) %>%
+    rename(nhd_id = comid)
+```
+
+```{r}
+mapview::mapview(icw_flowlines, zcol = 'position')
+```
+
+## Pulled landsat data
+### Using the Color of Rivers code, pulled landsat pixels that intersected NHD flowlines 
+```{r, include=FALSE}
+icw_comids <- flowlines %>%
+    filter(name == 'icw') %>%
+    pull(comid)
+
+#### Load in and filter pixels ####
+all_fils <- list.files('clearing_blackwaters/data/coastal_blackwater_ls', full.names = T)
+# all_fils <- list.files('../data/coastal_blackwater_ls', full.names = T)
+landsat_pix <- grep('[.]feather', all_fils, value = T)
+
+dswe_fils <- list.files('clearing_blackwaters/data/coastal_blackwater_ls_dswe', full.names = T)
+# dswe_fils <- list.files('../data/coastal_blackwater_ls_dswe', full.names = T)
+
+
+# function to append flowline id to dataframes
+read_feather_pull_nhd_id <- function(file_path) {
+    # flowline_id <- str_extract(file_path, 'icw_masked[0-9]*')
+    flowline_id <- str_split_fixed(file_path, '/', n = Inf)[,4]
+    
+    # flowline_id <- str_remove(flowline_id, 'icw_masked')
+    flowline_id <- str_remove(flowline_id, '[.]feather')
+    
+    file <- arrow::read_feather(file_path) %>%
+        mutate(nhd_id = !!flowline_id)
+    
+    return(file)
+}
+
+# Read in spectral and DSME data
+landsat_pixes <- map_dfr(landsat_pix, read_feather_pull_nhd_id)
+landsat_pixes_dswe <- map_dfr(dswe_fils, read_feather_pull_nhd_id) %>%
+    select(-time)
+
+landsat_pixes <- left_join(landsat_pixes, landsat_pixes_dswe)
+
+# DSWE 0 = not water, 1 = open water (high confides), 2 = open water (low confides)
+# 3 = vegetated water (high confides), 4 = vegetated water (low confides)
+landsat_pix_dates <- landsat_pixes %>%
+    mutate(date = substr(id, 17, nchar(id))) %>%
+    mutate(date = as_date(date, '%y%m%d')) %>%
+    mutate(mission =  str_match(id, 'LT0[:digit:]{1}|LE0[:digit:]{1}|LC0[:digit:]{1}')) %>%
+    mutate(mission = ifelse(mission == 'LC08',
+                             substr(as.character(id), 15, nchar(id)),
+                             substr(as.character(id), 17, nchar(id)))) %>%
+    mutate(ndvi = (Nir - Red) / (Nir + Red)) 
+
+landsat_pix_dates_icw <- landsat_pix_dates %>%
+    filter(nhd_id %in% !!icw_comids)
+
+```
+### Used the Dynamic Surface Water Extent (DSWE) algorithm, which casts pixels as not water (0), water high confidence (1), water low confidence (2), vegetated water high confidence (3), vegetated water low confidence (4) to remove non-water pixels.
+
+### Removed pixels with a DSWE of 0 and filtered for pixels with a mean DSWE less than 1.8. Chose this value from visual inspection on the intracoastal waterways.
+```{r, include=FALSE}
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+landsat_pix_keep <- landsat_pix_dates_icw %>%
+    filter(!is.na(dswe)) %>%
+    filter(!is.na(dswe)) %>%
+    group_by(longitude, latitude) %>%
+    summarise(mode_dswe = Mode(dswe),
+              mean_dswe = mean(dswe, na.rm = T)) 
+
+landsat_pix_dates_sf <- landsat_pix_dates_icw %>%
+    distinct(longitude, latitude, .keep_all = T) %>%
+    mutate(longitude_ = longitude,
+           latitude_ = latitude) %>%
+    st_as_sf(coords = c('longitude_', 'latitude_'), crs = 4326) %>%
+    left_join(., landsat_pix_keep)
+
+mapview::mapview(landsat_pix_dates_sf, zcol = 'mean_dswe',
+                 layer.name = 'Meam DSWE') + icw_flowlines
+```
+#### Mean DSWE after 0s were removed for whole time series
+```{r}
+mapview::mapview(landsat_pix_dates_sf, zcol = 'mean_dswe',
+                 layer.name = 'Meam DSWE') + icw_flowlines
+```
+
+#### After pixels are removed 
+```{r, include=FALSE}
+# removes about 16% of pixels
+landsat_pix_keep <- landsat_pix_dates_icw %>%
+    filter(!is.na(dswe)) %>%
+    filter(dswe != 0) %>%
+    group_by(latitude, longitude) %>%
+    summarise(dswe_mean = mean(dswe)) %>%
+    filter(dswe_mean <= 1.8)
+
+landsat_pix_keep_map <- landsat_pix_keep %>%
+    st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+```
+
+```{r}
+mapview::mapview(landsat_pix_keep_map, zcol = 'dswe_mean',
+                 layer.name = 'Meam DSWE')
+```
+
+
+## Calculated spectral indices 
+### Focused on the index that was correlated with salinity in St. Johns analysis (Green/(Blue+Red)). Calling the Saltwater Intrusion Index (SWII) for now 
+
+#### Time series of the SWII from Landsat 5,7, and 8 for the intracoastal waterway, colored by distance from the southern most outlet (Pungo River)
+```{r, include=FALSE}
+landsat_pix_sum_by_nhd <- landsat_pix_dates_icw %>%
+    inner_join(., landsat_pix_keep) %>%
+    mutate(nas = ifelse(is.na(Blue), 1, 0)) %>%
+    group_by(date, nhd_id, id) %>%
+    summarise(Blue = mean(Blue, na.rm = T),
+              Green = mean(Green, na.rm = T),
+              Red = mean(Red, na.rm = T),
+              Nir = mean(Nir, na.rm = T),
+              Swir1 = mean(Swir1, na.rm = T),
+              Swir2 = mean(Swir2, na.rm = T),
+              ndvi = mean(ndvi, na.rm = T),
+              occurrence = mean(occurrence, na.rm = T),
+              nas = sum(nas, na.rm = T),
+              n = n()) %>%
+    mutate(percent_impared = (nas/n)*100)
+
+
+nhd_landsat_sum <- left_join(icw_flowlines, landsat_pix_sum_by_nhd, by = 'nhd_id')
+```
+
+```{r}
+nhd_landsat_sum %>%
+    # filter(year(date) >= 2020) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position = round(position, 2)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    # scale_x_date(date_labels="%y-%b",date_breaks  ="month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+#### Zoomin on 2020 & 2021
+```{r}
+nhd_landsat_sum %>%
+    filter(year(date) %in% 2020:2021) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position = round(position, 2)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+# Takeaways
+### I am not sure what remote sensing information to consider for this analysis. The Green/(Blue+Red) was correlated with salinity and DOC in the St. Johns but this is also the visual spectrum and influenced by a lot of factors. But using the Green/(Blue+Red) index, it seems there is seasonal variation in many coastal systems in NC. 
+
+### Many rivers see an expected seasonal changes in the Green/(Blue+Red) index and higher values downstream (Perquimans, Pasquotank, and New). But some rivers show higher Green/(Blue+Red) values at the most upstream location (Scuppernong). This probably indicates cDOM is not solely driving the color of these waters. Algae, emergent vegetation, turbidity, or other things may be driving the color. 
+
+# Scuppernong River
+```{r, include=FALSE}
+
+scup_comids <- flowlines %>%
+    filter(name == 'scuppernong') %>%
+    pull(comid)
+
+scup_flowlines <- flowlines %>%
+    filter(name == 'scuppernong') %>%
+    rename(nhd_id = comid)
+
+landsat_pix_dates_scup <- landsat_pix_dates %>%
+    filter(nhd_id %in% !!scup_comids)
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(!is.na(dswe)) %>%
+    group_by(longitude, latitude) %>%
+    summarise(mode_dswe = Mode(dswe),
+              mean_dswe = mean(dswe, na.rm = T)) 
+
+landsat_pix_dates_sf <- landsat_pix_dates_scup %>%
+    distinct(longitude, latitude, .keep_all = T) %>%
+    mutate(longitude_ = longitude,
+           latitude_ = latitude) %>%
+    st_as_sf(coords = c('longitude_', 'latitude_'), crs = 4326) %>%
+    left_join(., landsat_pix_keep)
+
+# mapview::mapview(landsat_pix_dates_sf, zcol = 'mean_dswe',
+#                  layer.name = 'Meam DSWE') + icw_flowlines
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(dswe != 0) %>%
+    group_by(latitude, longitude) %>%
+    summarise(dswe_mean = mean(dswe),
+              n = n()) %>%
+    filter(dswe_mean <= 1.8,
+           n >= 100)
+
+landsat_pix_keep_map <- landsat_pix_keep %>%
+    st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+```
+
+
+```{r, include=FALSE}
+# all_fils <- list.files('../data/coastal_blackwater_ls')
+all_fils <- list.files('clearing_blackwaters/data/coastal_blackwater_ls')
+this_river <- grep(paste0(scup_comids, collapse = '|'), all_fils, value = T)
+
+landsat_nhd_scup <- map_dfr(this_river, read_sum_feather_by_nhd_id)
+
+start_point <- tibble(lat = 35.944194,
+                      long = -76.322361) %>%
+    st_as_sf(coords = c('long', 'lat'), crs = 4326) %>%
+    st_transform(., st_crs(scup_flowlines))
+
+scup_flowlines_centroid <- scup_flowlines %>%
+    mutate(geometry = st_centroid(geometry))
+
+for(i in 1:nrow(scup_flowlines)) {
+    scup_flowlines_centroid[i,'position'] <- st_distance(start_point, scup_flowlines_centroid[i,])
+}
+
+scup_flowlines_centroid <- scup_flowlines_centroid %>%
+    as.data.frame() %>%
+    select(nhd_id, position)
+
+new_tib <- tibble(nhd_id = scup_flowlines_centroid$nhd_id,
+                  position = scup_flowlines_centroid$position[,1]) %>%
+     mutate(position = position/1000) %>%
+     mutate(position = round(position, 2))
+
+scup_flowlines <- left_join(scup_flowlines, new_tib) 
+
+# mapview::mapview(scup_flowlines, zcol = 'position')
+
+# landsat_nhd_scup
+#### Join flowlines to landsat data ####
+nhd_landsat_sum_scup <- left_join(landsat_nhd_scup, new_tib)
+
+```
+
+### Visible pixels
+```{r}
+mapview::mapview(landsat_pix_keep_map) + mapview::mapview(scup_flowlines, zcol = 'position')
+```
+
+### Time series
+```{r}
+# look <- nhd_landsat_sum_scup %>%
+#     filter(!is.na(Blue)) %>%
+#     group_by(position) %>%
+#     summarise(n = n())
+
+nhd_landsat_sum_scup %>%
+    # filter(year(date) >= 2020) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    # filter(position <= 8) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    # scale_x_date(date_labels="%y-%b",date_breaks  ="month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+#### Zoomin on 2018 & 2019
+```{r}
+nhd_landsat_sum_scup %>%
+    # filter(position <= 8) %>%
+    filter(year(date) %in% 2018:2019) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position = round(position, 2)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+##### Look at anomaly between the most down stream locations 
+```{r}
+nhd_landsat_sum_scup <- nhd_landsat_sum_scup %>%
+        mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2)
+
+down_stream <- nhd_landsat_sum_scup %>%
+    filter(nhd_id == 26816607) 
+
+names(down_stream)[3:8] <- paste0(names(down_stream)[3:8], '_ref')
+names(down_stream)[15] <- 'swii_ref'
+
+down_stream <- down_stream %>%
+    select(-occurrence,
+           -percent_impared,
+           -nhd_id,
+           -position) %>%
+    rename(ref_nas = nas,
+           ref_n = n)
+
+nhd_landsat_annom <- nhd_landsat_sum_scup %>%
+    left_join(down_stream) %>%
+    mutate(swii_anom = swii - swii_ref)
+
+nhd_landsat_annom %>%
+    # filter(position <= 8) %>%
+    filter(year(date) %in% 2018:2019) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii_anom, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+
+# Milltail Creek
+```{r, include=FALSE}
+
+mill_comids <- flowlines %>%
+    filter(name == 'milltail_creek') %>%
+    pull(comid)
+
+mill_flowlines <- flowlines %>%
+    filter(name == 'milltail_creek') %>%
+    rename(nhd_id = comid)
+
+landsat_pix_dates_scup <- landsat_pix_dates %>%
+    filter(nhd_id %in% !!mill_comids)
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(!is.na(dswe)) %>%
+    group_by(longitude, latitude) %>%
+    summarise(mode_dswe = Mode(dswe),
+              mean_dswe = mean(dswe, na.rm = T)) 
+
+landsat_pix_dates_sf <- landsat_pix_dates_scup %>%
+    distinct(longitude, latitude, .keep_all = T) %>%
+    mutate(longitude_ = longitude,
+           latitude_ = latitude) %>%
+    st_as_sf(coords = c('longitude_', 'latitude_'), crs = 4326) %>%
+    left_join(., landsat_pix_keep)
+
+# mapview::mapview(landsat_pix_dates_sf, zcol = 'mean_dswe',
+#                  layer.name = 'Meam DSWE') + icw_flowlines
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(dswe != 0) %>%
+    group_by(latitude, longitude) %>%
+    summarise(dswe_mean = mean(dswe),
+              n = n()) %>%
+    filter(dswe_mean <= 1.8,
+           n >= 80)
+
+landsat_pix_keep_map <- landsat_pix_keep %>%
+    st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+```
+
+
+```{r, include=FALSE}
+# all_fils <- list.files('../data/coastal_blackwater_ls')
+all_fils <- list.files('clearing_blackwaters/data/coastal_blackwater_ls')
+this_river <- grep(paste0(mill_comids, collapse = '|'), all_fils, value = T)
+
+landsat_nhd_mill <- map_dfr(this_river, read_sum_feather_by_nhd_id)
+
+start_point <- tibble(lat = 35.874056,
+                      long = -76.007667) %>%
+    st_as_sf(coords = c('long', 'lat'), crs = 4326) %>%
+    st_transform(., st_crs(mill_flowlines))
+
+mill_flowlines_centroid <- mill_flowlines %>%
+    mutate(geometry = st_centroid(geometry))
+
+for(i in 1:nrow(mill_flowlines)) {
+    mill_flowlines_centroid[i,'position'] <- st_distance(start_point, mill_flowlines_centroid[i,])
+}
+
+mill_flowlines_centroid <- mill_flowlines_centroid %>%
+    as.data.frame() %>%
+    select(nhd_id, position)
+
+new_tib <- tibble(nhd_id = mill_flowlines_centroid$nhd_id,
+                  position = mill_flowlines_centroid$position[,1]) %>%
+     mutate(position = position/1000) %>%
+    mutate(position = round(position, 2))
+
+mill_flowlines <- left_join(mill_flowlines, new_tib) 
+
+# mapview::mapview(scup_flowlines, zcol = 'position')
+
+# landsat_nhd_scup
+#### Join flowlines to landsat data ####
+nhd_landsat_sum_mill <- left_join(landsat_nhd_mill, new_tib)
+
+```
+
+### Visible pixels
+```{r}
+mapview::mapview(landsat_pix_keep_map) + mapview::mapview(mill_flowlines, zcol = 'position')
+```
+
+### Time series
+```{r}
+nhd_landsat_sum_mill %>%
+    # filter(year(date) >= 2010) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position = round(position, 2)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    # scale_x_date(date_labels="%y-%b",date_breaks  ="month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+#### Zoomin on 2017 & 2018
+```{r}
+nhd_landsat_sum_mill %>%
+    filter(year(date) %in% 2017:2018) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position = round(position, 2)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+##### Look at anomaly between the most down stream locations 
+```{r}
+nhd_landsat_sum_scup <- nhd_landsat_sum_scup %>%
+        mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2)
+
+down_stream <- nhd_landsat_sum_scup %>%
+    filter(nhd_id == 26816607) 
+
+names(down_stream)[3:8] <- paste0(names(down_stream)[3:8], '_ref')
+names(down_stream)[15] <- 'swii_ref'
+
+down_stream <- down_stream %>%
+    select(-occurrence,
+           -percent_impared,
+           -nhd_id,
+           -position) %>%
+    rename(ref_nas = nas,
+           ref_n = n)
+
+nhd_landsat_annom <- nhd_landsat_sum_scup %>%
+    left_join(down_stream) %>%
+    mutate(swii_anom = swii - swii_ref)
+
+nhd_landsat_annom %>%
+    # filter(position <= 8) %>%
+    filter(year(date) %in% 2007:2010) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii_anom, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+
+```
+
+
+# New River 
+```{r, include=FALSE}
+scup_comids <- flowlines %>%
+    filter(name == 'new_river') %>%
+    pull(comid)
+
+scup_flowlines <- flowlines %>%
+    filter(name == 'new_river') %>%
+    rename(nhd_id = comid)
+
+landsat_pix_dates_scup <- landsat_pix_dates %>%
+    filter(nhd_id %in% !!scup_comids)
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(!is.na(dswe)) %>%
+    group_by(longitude, latitude) %>%
+    summarise(mode_dswe = Mode(dswe),
+              mean_dswe = mean(dswe, na.rm = T)) 
+
+landsat_pix_dates_sf <- landsat_pix_dates_scup %>%
+    distinct(longitude, latitude, .keep_all = T) %>%
+    mutate(longitude_ = longitude,
+           latitude_ = latitude) %>%
+    st_as_sf(coords = c('longitude_', 'latitude_'), crs = 4326) %>%
+    left_join(., landsat_pix_keep)
+
+# mapview::mapview(landsat_pix_dates_sf, zcol = 'mean_dswe',
+#                  layer.name = 'Meam DSWE') + icw_flowlines
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(dswe != 0) %>%
+    group_by(latitude, longitude) %>%
+    summarise(dswe_mean = mean(dswe),
+              n = n()) %>%
+    filter(dswe_mean <= 1.8,
+           n >= 100)
+
+landsat_pix_keep_map <- landsat_pix_keep %>%
+    st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+```
+
+
+```{r, include=FALSE}
+# all_fils <- list.files('../data/coastal_blackwater_ls')
+all_fils <- list.files('clearing_blackwaters/data/coastal_blackwater_ls')
+this_river <- grep(paste0(scup_comids, collapse = '|'), all_fils, value = T)
+
+landsat_nhd_scup <- map_dfr(this_river, read_sum_feather_by_nhd_id)
+
+start_point <- tibble(lat = 34.542250,
+                      long = -77.345139) %>%
+    st_as_sf(coords = c('long', 'lat'), crs = 4326) %>%
+    st_transform(., st_crs(scup_flowlines))
+
+scup_flowlines_centroid <- scup_flowlines %>%
+    mutate(geometry = st_centroid(geometry))
+
+for(i in 1:nrow(scup_flowlines)) {
+    scup_flowlines_centroid[i,'position'] <- st_distance(start_point, scup_flowlines_centroid[i,])
+}
+
+scup_flowlines_centroid <- scup_flowlines_centroid %>%
+    as.data.frame() %>%
+    select(nhd_id, position)
+
+new_tib <- tibble(nhd_id = scup_flowlines_centroid$nhd_id,
+                  # position = scup_flowlines_centroid$position
+                  position = scup_flowlines_centroid$position[,1]
+                  ) %>%
+     mutate(position = position/1000) %>%
+     mutate(position = round(position, 2))
+
+scup_flowlines <- left_join(scup_flowlines, new_tib) 
+
+# mapview::mapview(scup_flowlines, zcol = 'position')
+
+# landsat_nhd_scup
+#### Join flowlines to landsat data ####
+nhd_landsat_sum_scup <- left_join(landsat_nhd_scup, new_tib)
+
+```
+
+### Visible pixels
+```{r}
+mapview::mapview(landsat_pix_keep_map) + mapview::mapview(scup_flowlines, zcol = 'position')
+```
+
+### Time series
+```{r}
+# look <- nhd_landsat_sum_scup %>%
+#     filter(!is.na(Blue)) %>%
+#     group_by(position) %>%
+#     summarise(n = n())
+
+nhd_landsat_sum_scup %>%
+    # filter(year(date) >= 2020) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(position <= 120) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    # scale_x_date(date_labels="%y-%b",date_breaks  ="month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+#### Zoomin on 2008 to 2010
+```{r}
+nhd_landsat_sum_scup %>%
+    # filter(position <= 8) %>%
+    filter(year(date) %in% 2008:2010) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+##### Look at anomaly between the most down stream locations 
+```{r}
+nhd_landsat_sum_scup <- nhd_landsat_sum_scup %>%
+        mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2)
+
+down_stream <- nhd_landsat_sum_scup %>%
+    filter(nhd_id == 10519476) 
+
+names(down_stream)[3:8] <- paste0(names(down_stream)[3:8], '_ref')
+names(down_stream)[15] <- 'swii_ref'
+
+down_stream <- down_stream %>%
+    select(-occurrence,
+           -percent_impared,
+           -nhd_id,
+           -position) %>%
+    rename(ref_nas = nas,
+           ref_n = n)
+
+nhd_landsat_annom <- nhd_landsat_sum_scup %>%
+    left_join(down_stream) %>%
+    mutate(swii_anom = swii - swii_ref)
+
+nhd_landsat_annom %>%
+    # filter(position <= 8) %>%
+    filter(year(date) %in% 2007:2010) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii_anom, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+
+```
+
+
+# Pasquotank River
+```{r, include=FALSE}
+scup_comids <- flowlines %>%
+    filter(name == 'pasquotank_river') %>%
+    pull(comid)
+
+scup_flowlines <- flowlines %>%
+    filter(name == 'pasquotank_river') %>%
+    rename(nhd_id = comid)
+
+landsat_pix_dates_scup <- landsat_pix_dates %>%
+    filter(nhd_id %in% !!scup_comids)
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(!is.na(dswe)) %>%
+    group_by(longitude, latitude) %>%
+    summarise(mode_dswe = Mode(dswe),
+              mean_dswe = mean(dswe, na.rm = T)) 
+
+landsat_pix_dates_sf <- landsat_pix_dates_scup %>%
+    distinct(longitude, latitude, .keep_all = T) %>%
+    mutate(longitude_ = longitude,
+           latitude_ = latitude) %>%
+    st_as_sf(coords = c('longitude_', 'latitude_'), crs = 4326) %>%
+    left_join(., landsat_pix_keep)
+
+# mapview::mapview(landsat_pix_dates_sf, zcol = 'mean_dswe',
+#                  layer.name = 'Meam DSWE') + icw_flowlines
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(dswe != 0) %>%
+    group_by(latitude, longitude) %>%
+    summarise(dswe_mean = mean(dswe),
+              n = n()) %>%
+    filter(dswe_mean <= 1.8,
+           n >= 100)
+
+landsat_pix_keep_map <- landsat_pix_keep %>%
+    st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+```
+
+
+```{r, include=FALSE}
+# all_fils <- list.files('../data/coastal_blackwater_ls')
+all_fils <- list.files('clearing_blackwaters/data/coastal_blackwater_ls')
+this_river <- grep(paste0(scup_comids, collapse = '|'), all_fils, value = T)
+
+landsat_nhd_scup <- map_dfr(this_river, read_sum_feather_by_nhd_id)
+
+start_point <- tibble(lat = 36.139972,
+                      long = -76.001694) %>%
+    st_as_sf(coords = c('long', 'lat'), crs = 4326) %>%
+    st_transform(., st_crs(scup_flowlines))
+
+scup_flowlines_centroid <- scup_flowlines %>%
+    mutate(geometry = st_centroid(geometry))
+
+for(i in 1:nrow(scup_flowlines)) {
+    scup_flowlines_centroid[i,'position'] <- st_distance(start_point, scup_flowlines_centroid[i,])
+}
+
+scup_flowlines_centroid <- scup_flowlines_centroid %>%
+    as.data.frame() %>%
+    select(nhd_id, position)
+
+new_tib <- tibble(nhd_id = scup_flowlines_centroid$nhd_id,
+                  # position = scup_flowlines_centroid$position
+                  position = scup_flowlines_centroid$position[,1]
+                  ) %>%
+     mutate(position = position/1000) %>%
+     mutate(position = round(position, 2))
+
+scup_flowlines <- left_join(scup_flowlines, new_tib) 
+
+# mapview::mapview(scup_flowlines, zcol = 'position')
+
+# landsat_nhd_scup
+#### Join flowlines to landsat data ####
+nhd_landsat_sum_scup <- left_join(landsat_nhd_scup, new_tib)
+
+```
+
+### Visible pixels
+```{r}
+mapview::mapview(landsat_pix_keep_map) + mapview::mapview(scup_flowlines, zcol = 'position')
+```
+
+### Time series
+```{r}
+# look <- nhd_landsat_sum_scup %>%
+#     filter(!is.na(Blue)) %>%
+#     group_by(position) %>%
+#     summarise(n = n())
+
+nhd_landsat_sum_scup %>%
+    # filter(year(date) >= 2020) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(position <= 120) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    # scale_x_date(date_labels="%y-%b",date_breaks  ="month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+#### Zoomin on 2007 to 2010
+```{r}
+nhd_landsat_sum_scup %>%
+    # filter(position <= 8) %>%
+    filter(year(date) %in% 2007:2010) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+##### Look at anomaly between the most down stream locations 
+```{r}
+nhd_landsat_sum_scup <- nhd_landsat_sum_scup %>%
+        mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2)
+
+down_stream <- nhd_landsat_sum_scup %>%
+    filter(nhd_id == 10499583) 
+
+names(down_stream)[3:8] <- paste0(names(down_stream)[3:8], '_ref')
+names(down_stream)[15] <- 'swii_ref'
+
+down_stream <- down_stream %>%
+    select(-occurrence,
+           -percent_impared,
+           -nhd_id,
+           -position) %>%
+    rename(ref_nas = nas,
+           ref_n = n)
+
+nhd_landsat_annom <- nhd_landsat_sum_scup %>%
+    left_join(down_stream) %>%
+    mutate(swii_anom = swii - swii_ref)
+
+nhd_landsat_annom %>%
+    # filter(position <= 8) %>%
+    filter(year(date) %in% 2007:2010) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii_anom, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+
+
+
+```
+
+
+# Perquimans River
+```{r, include=FALSE}
+scup_comids <- flowlines %>%
+    filter(name == 'perquimans_river') %>%
+    pull(comid)
+
+scup_flowlines <- flowlines %>%
+    filter(name == 'perquimans_river') %>%
+    rename(nhd_id = comid)
+
+landsat_pix_dates_scup <- landsat_pix_dates %>%
+    filter(nhd_id %in% !!scup_comids)
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(!is.na(dswe)) %>%
+    group_by(longitude, latitude) %>%
+    summarise(mode_dswe = Mode(dswe),
+              mean_dswe = mean(dswe, na.rm = T)) 
+
+landsat_pix_dates_sf <- landsat_pix_dates_scup %>%
+    distinct(longitude, latitude, .keep_all = T) %>%
+    mutate(longitude_ = longitude,
+           latitude_ = latitude) %>%
+    st_as_sf(coords = c('longitude_', 'latitude_'), crs = 4326) %>%
+    left_join(., landsat_pix_keep)
+
+# mapview::mapview(landsat_pix_dates_sf, zcol = 'mean_dswe',
+#                  layer.name = 'Meam DSWE') + icw_flowlines
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(dswe != 0) %>%
+    group_by(latitude, longitude) %>%
+    summarise(dswe_mean = mean(dswe),
+              n = n()) %>%
+    filter(dswe_mean <= 1.8,
+           n >= 100)
+
+landsat_pix_keep_map <- landsat_pix_keep %>%
+    st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+```
+
+
+```{r, include=FALSE}
+# all_fils <- list.files('../data/coastal_blackwater_ls')
+all_fils <- list.files('clearing_blackwaters/data/coastal_blackwater_ls')
+this_river <- grep(paste0(scup_comids, collapse = '|'), all_fils, value = T)
+
+landsat_nhd_scup <- map_dfr(this_river, read_sum_feather_by_nhd_id)
+
+start_point <- tibble(lat = 36.098806,
+                      long = -76.276500) %>%
+    st_as_sf(coords = c('long', 'lat'), crs = 4326) %>%
+    st_transform(., st_crs(scup_flowlines))
+
+scup_flowlines_centroid <- scup_flowlines %>%
+    mutate(geometry = st_centroid(geometry))
+
+for(i in 1:nrow(scup_flowlines)) {
+    scup_flowlines_centroid[i,'position'] <- st_distance(start_point, scup_flowlines_centroid[i,])
+}
+
+scup_flowlines_centroid <- scup_flowlines_centroid %>%
+    as.data.frame() %>%
+    select(nhd_id, position)
+
+new_tib <- tibble(nhd_id = scup_flowlines_centroid$nhd_id,
+                  # position = scup_flowlines_centroid$position
+                  position = scup_flowlines_centroid$position[,1]
+                  ) %>%
+     mutate(position = position/1000) %>%
+     mutate(position = round(position, 2))
+
+scup_flowlines <- left_join(scup_flowlines, new_tib) 
+
+mapview::mapview(scup_flowlines, zcol = 'position',
+                 layer.name = 'position')
+
+# landsat_nhd_scup
+#### Join flowlines to landsat data ####
+nhd_landsat_sum_scup <- left_join(landsat_nhd_scup, new_tib)
+
+```
+
+### Visible pixels
+```{r}
+mapview::mapview(landsat_pix_keep_map) + mapview::mapview(scup_flowlines, zcol = 'position')
+```
+
+### Time series
+```{r}
+# look <- nhd_landsat_sum_scup %>%
+#     filter(!is.na(Blue)) %>%
+#     group_by(position) %>%
+#     summarise(n = n())
+
+png('clearing_blackwaters/plots/perquimans.png', width = 8, height = 3, units = 'in', res = 1000)
+nhd_landsat_sum_scup %>%
+    filter(position %in% c(4.16, 12.93, 21.59)) %>%
+    mutate(riv_position = case_when(position == 4.16 ~ 'Downstream',
+                                    position == 12.93 ~ 'Middle',
+                                    position == 21.59 ~ 'Upstream')) %>%
+    # filter(year(date) >= 2020) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(position <= 120) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = riv_position, group = riv_position)) +
+    geom_line() +
+    scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    # scale_x_date(date_labels="%y-%b",date_breaks  ="month") +
+    # viridis::scale_color_viridis() +
+    scale_color_manual(values = c('#E69F00', '#56B4E9', '#009E73')) +
+    # lims(y = c(0, 2)) +
+    theme_few() +
+    labs(x = 'Year', y = 'Salinity Proxy\nGreen/(Blue+Red)',
+         color = 'River\nPosition') +
+    theme(legend.title = element_text('River\nPosition'))
+dev.off()
+```
+
+#### Zoomin on 2007 & 2010
+```{r}
+
+png('clearing_blackwaters/plots/perquimans_close_up.png', width = 8, height = 3, units = 'in', res = 1000)
+nhd_landsat_sum_scup %>%
+    # filter(position <= 8) %>%
+    filter(year(date) %in% 2007:2010) %>%
+    filter(position %in% c(4.16, 12.93, 21.59)) %>%
+        filter(position %in% c(4.16, 12.93, 21.59)) %>%
+    mutate(riv_position = case_when(position == 4.16 ~ 'Downstream',
+                                    position == 12.93 ~ 'Middle',
+                                    position == 21.59 ~ 'Upstream')) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = riv_position, group = riv_position)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+        labs(x = 'Year', y = 'Salinity Proxy\nGreen/(Blue+Red)',
+         color = 'River\nPosition') +
+        scale_color_manual(values = c('#E69F00', '#56B4E9', '#009E73')) +
+    theme(legend.title = element_text('River\nPosition')) +
+    # viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+dev.off()
+```
+
+##### Look at anomaly between the most down stream locations 
+```{r}
+nhd_landsat_sum_scup <- nhd_landsat_sum_scup %>%
+        mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2)
+
+down_stream <- nhd_landsat_sum_scup %>%
+    filter(nhd_id == 10479911) 
+
+names(down_stream)[3:8] <- paste0(names(down_stream)[3:8], '_ref')
+names(down_stream)[15] <- 'swii_ref'
+
+down_stream <- down_stream %>%
+    select(-occurrence,
+           -percent_impared,
+           -nhd_id,
+           -position) %>%
+    rename(ref_nas = nas,
+           ref_n = n)
+
+nhd_landsat_annom <- nhd_landsat_sum_scup %>%
+    left_join(down_stream) %>%
+    mutate(swii_anom = swii - swii_ref)
+
+nhd_landsat_annom %>%
+    filter(position %in% c(4.16, 12.93, 21.59)) %>%
+    filter(year(date) %in% 2007:2010) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii_anom, color = position_, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    scale_color_brewer(palette = 'Set1', type = 'seq') +
+    # viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+# White Oak
+```{r, include=FALSE}
+scup_comids <- flowlines %>%
+    filter(name == 'white_oak') %>%
+    pull(comid)
+
+scup_flowlines <- flowlines %>%
+    filter(name == 'white_oak') %>%
+    rename(nhd_id = comid)
+
+landsat_pix_dates_scup <- landsat_pix_dates %>%
+    filter(nhd_id %in% !!scup_comids)
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(!is.na(dswe)) %>%
+    group_by(longitude, latitude) %>%
+    summarise(mode_dswe = Mode(dswe),
+              mean_dswe = mean(dswe, na.rm = T)) 
+
+landsat_pix_dates_sf <- landsat_pix_dates_scup %>%
+    distinct(longitude, latitude, .keep_all = T) %>%
+    mutate(longitude_ = longitude,
+           latitude_ = latitude) %>%
+    st_as_sf(coords = c('longitude_', 'latitude_'), crs = 4326) %>%
+    left_join(., landsat_pix_keep)
+
+# mapview::mapview(landsat_pix_dates_sf, zcol = 'mean_dswe',
+#                  layer.name = 'Meam DSWE') + icw_flowlines
+
+landsat_pix_keep <- landsat_pix_dates_scup %>%
+    filter(!is.na(dswe)) %>%
+    filter(dswe != 0) %>%
+    group_by(latitude, longitude) %>%
+    summarise(dswe_mean = mean(dswe),
+              n = n()) %>%
+    filter(dswe_mean <= 1.8,
+           n >= 100)
+
+landsat_pix_keep_map <- landsat_pix_keep %>%
+    st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+```
+
+
+```{r, include=FALSE}
+all_fils <- list.files('../data/coastal_blackwater_ls')
+# all_fils <- list.files('clearing_blackwaters/data/coastal_blackwater_ls')
+this_river <- grep(paste0(scup_comids, collapse = '|'), all_fils, value = T)
+
+landsat_nhd_scup <- map_dfr(this_river, read_sum_feather_by_nhd_id)
+
+start_point <- tibble(lat = 34.681944,
+                      long = -77.119722) %>%
+    st_as_sf(coords = c('long', 'lat'), crs = 4326) %>%
+    st_transform(., st_crs(scup_flowlines))
+
+scup_flowlines_centroid <- scup_flowlines %>%
+    mutate(geometry = st_centroid(geometry))
+
+for(i in 1:nrow(scup_flowlines)) {
+    scup_flowlines_centroid[i,'position'] <- st_distance(start_point, scup_flowlines_centroid[i,])
+}
+
+scup_flowlines_centroid <- scup_flowlines_centroid %>%
+    as.data.frame() %>%
+    select(nhd_id, position)
+
+new_tib <- tibble(nhd_id = scup_flowlines_centroid$nhd_id,
+                  # position = scup_flowlines_centroid$position
+                  position = scup_flowlines_centroid$position[,1]
+                  ) %>%
+     mutate(position = position/1000) %>%
+     mutate(position = round(position, 2))
+
+scup_flowlines <- left_join(scup_flowlines, new_tib) 
+
+# mapview::mapview(scup_flowlines, zcol = 'position')
+
+# landsat_nhd_scup
+#### Join flowlines to landsat data ####
+nhd_landsat_sum_scup <- left_join(landsat_nhd_scup, new_tib)
+
+```
+
+### Visible pixels
+```{r}
+mapview::mapview(landsat_pix_keep_map) + mapview::mapview(scup_flowlines, zcol = 'position')
+```
+
+### Time series
+```{r}
+# look <- nhd_landsat_sum_scup %>%
+#     filter(!is.na(Blue)) %>%
+#     group_by(position) %>%
+#     summarise(n = n())
+
+nhd_landsat_sum_scup %>%
+    # filter(year(date) >= 2020) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(position <= 23) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    # scale_x_date(date_labels="%y-%b",date_breaks  ="month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+#### Zoomin on 2007 to 2010
+```{r}
+nhd_landsat_sum_scup %>%
+    filter(position <= 23) %>%
+    filter(year(date) %in% 2007:2010) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    # filter(year(date) %in% 2019,
+    #        month(date) %in% 6:10) %>%
+    mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+##### Look at anomaly between the most down stream locations 
+```{r}
+nhd_landsat_sum_scup <- nhd_landsat_sum_scup %>%
+        mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2)
+
+down_stream <- nhd_landsat_sum_scup %>%
+    filter(nhd_id == 10961534) 
+
+names(down_stream)[3:8] <- paste0(names(down_stream)[3:8], '_ref')
+names(down_stream)[15] <- 'swii_ref'
+
+down_stream <- down_stream %>%
+    select(-occurrence,
+           -percent_impared,
+           -nhd_id,
+           -position) %>%
+    rename(ref_nas = nas,
+           ref_n = n)
+
+nhd_landsat_annom <- nhd_landsat_sum_scup %>%
+    left_join(down_stream) %>%
+    mutate(swii_anom = swii - swii_ref)
+
+nhd_landsat_annom %>%
+    # filter(position <= 8) %>%
+    filter(year(date) %in% 2007:2010) %>%
+    # filter(month(date) >= 10) %>%
+    # filter(year(date) <= 2021) %>%
+    # filter(date == '2020-10-18') %>%
+    # pull(id.y)
+    # filter(nhd_id %in% c(141603111, 167451376, 166782446, 140599358)) %>%
+    mutate(position_ = as.factor(position)) %>%
+    filter(!is.na(Blue)) %>%
+    filter(swii >= -1 & swii <= 2) %>%
+    ggplot(aes(date, swii_anom, color = position, group = position_)) +
+    geom_line() +
+    # scale_x_date(date_labels="%y",date_breaks  ="2 years") +
+    scale_x_date(date_labels="%y-\n%b",date_breaks  ="3 month") +
+    viridis::scale_color_viridis() +
+    # lims(y = c(0, 2)) +
+    theme_few()
+```
+
+
+
+
+```{r, include=FALSE, eval=FALSE}
+### Map on day with high SWII 
+expore_intrution_day <- landsat_pix_dates_icw %>%
+    filter(date >= ymd('2020-10-17'),
+           date <= ymd('2020-10-20')) %>%
+    st_as_sf(coords = c('longitude', 'latitude'), crs = 4326) %>%
+        mutate(swii = Green/(Blue+Red)) %>% 
+    filter(swii >= -1 & swii <= 2) 
+
+mapview::mapview(expore_intrution_day, zcol = 'swii')
+
+look <- nhd_landsat_sum %>%
+    filter(date >= ymd('2020-10-17'),
+           date <= ymd('2020-10-20')) %>%
+    st_as_sf(coords = c('longitude', 'latitude'), crs = 4326) %>%
+        mutate(swii = round(Green/(Blue+Red), 2)) %>% 
+    filter(swii >= -1 & swii <= 2) 
+
+mapview::mapview(look, zcol = 'swii')
+```
+

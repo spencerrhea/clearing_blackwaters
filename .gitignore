@@ -1,0 +1,11 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+clearing_blackwaters.Rproj
+bin/*
+include/*
+lib/*
+lib64
+pyvenv.cfg
+share/*
