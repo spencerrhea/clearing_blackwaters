@@ -1,0 +1,166 @@
+## library
+
+```{r}
+
+library(nhdplusTools)
+library(sf)
+library(mapview)
+library(tidyverse)
+#library(ggmap)
+#library(opencage)
+
+```
+
+```{r}
+
+start_point <- st_sfc(st_point(c(-82.59995, 33.03532)), crs = 4269)
+start_comid <- discover_nhdplus_id(start_point)
+
+# upstream
+
+flowline <- navigate_nldi(list(featureSource = "comid", 
+                               featureID = start_comid), 
+                          mode = "upstreamTributaries", 
+                          distance_km = 100)
+
+subset_file <- tempfile(fileext = ".gpkg")
+subset <- subset_nhdplus(comids = as.integer(flowline$UT$nhdplus_comid),
+                         output_file = subset_file,
+                         nhdplus_data = "download", 
+                         flowline_only = FALSE,
+                         return_data = TRUE, overwrite = TRUE)
+
+flowline <- subset$NHDFlowline_Network
+plot(sf::st_geometry(flowline), col = "blue")
+plot(start_point, cex = 1.5, lwd = 2, col = "red", add = TRUE)
+
+#downstream
+
+flowline2 <- navigate_nldi(list(featureSource = "comid", 
+                               featureID = start_comid), 
+                          mode = "downstreamMain", 
+                          distance_km = 100)
+
+subset_file2 <- tempfile(fileext = ".gpkg")
+subset2 <- subset_nhdplus(comids = as.integer(flowline2$DD_flowlines$nhdplus_comid),
+                         output_file = subset_file2,
+                         nhdplus_data = "download", 
+                         flowline_only = FALSE,
+                         return_data = TRUE, overwrite = TRUE)
+
+
+flowline2 <- subset2$NHDFlowline_Network
+plot(sf::st_geometry(flowline2), col = "blue")
+plot(start_point, cex = 1.5, lwd = 2, col = "red", add = TRUE)
+
+```
+
+```{r}
+
+flowlines_joined  <- rbind(flowline, flowline2)
+
+plot(sf::st_geometry(flowlines_joined), col = "blue")
+plot(start_point, cex = 1.5, lwd = 2, col = "red", add = TRUE)
+
+
+
+```
+
+```{r}
+
+mapview(flowlines_joined)
+
+```
+
+## Extracting coordinates from dataframe
+
+```{r}
+
+extract_coordinates <- function(data) {
+  # Initialize empty vectors to store latitude and longitude values
+  latitudes <- vector()
+  longitudes <- vector()
+  
+  # Loop over each row of the dataframe
+  for (i in 1:nrow(data)) {
+    # Get latitude and longitude values from the current row
+    latitude <- data[i, "Latitude"]
+    longitude <- data[i, "Longitude"]
+    
+    # Append latitude and longitude values to the respective vectors
+    latitudes <- c(latitudes, latitude)
+    longitudes <- c(longitudes, longitude)
+  }
+  
+  # Return the extracted latitude and longitude values
+  return(list(latitudes = latitudes, longitudes = longitudes))
+}
+
+```
+
+```{r}
+
+x <- extract_coordinates(wiki)
+
+lat <- x$latitudes
+long <- x$longitudes
+
+```
+
+```{r}
+
+river_list <- list()
+
+for (i in 1:5) { # change range to loop through all the data
+  start_point <- st_sfc(st_point(c(as.numeric(long[i]), as.numeric(lat[i]))), crs = 4269)
+  print(start_point)
+  start_comid <- discover_nhdplus_id(start_point)
+  print(start_comid)
+
+  
+  if (length(start_comid) == 0)
+  {
+    next
+  }
+  # upstream
+
+  flowline <- navigate_nldi(list(featureSource = "comid", 
+                               featureID = start_comid), 
+                          mode = "upstreamTributaries", 
+                          distance_km = 100)
+
+  subset_file <- tempfile(fileext = ".gpkg")
+  subset <- subset_nhdplus(comids = as.integer(flowline$UT$nhdplus_comid),
+                           output_file = subset_file,
+                           nhdplus_data = "download", 
+                           flowline_only = FALSE,
+                           return_data = TRUE, overwrite = TRUE)
+  
+  flowline <- subset$NHDFlowline_Network
+  
+  # downstream
+  
+  flowline_down <- navigate_nldi(list(featureSource = "comid", 
+                                featureID = start_comid), 
+                                mode = "DD", 
+                                distance_km = 100)
+
+  subset_file_down <- tempfile(fileext = ".gpkg")
+  subset_down <- subset_nhdplus(comids = as.integer(flowline_down$DD_flowlines$nhdplus_comid),
+                           output_file = subset_file_down,
+                           nhdplus_data = "download", 
+                           flowline_only = FALSE,
+                           return_data = TRUE, overwrite = TRUE)
+  
+  
+  flowline_down <- subset_down$NHDFlowline_Network
+  
+  flowlines_joined <- rbind(flowline, flowline_down)
+  
+  river_list[[i]] <- flowlines_joined
+}
+
+```
+
+
+
