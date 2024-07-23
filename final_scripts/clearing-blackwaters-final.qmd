@@ -1,4 +1,8 @@
-## library
+---
+title: Generate, view, and download flowline data
+---
+
+## Library
 
 ```{r}
 
@@ -7,8 +11,8 @@ library(sf)
 library(mapview)
 library(tidyverse)
 library(stringr)
-#library(ggmap)
-#library(opencage)
+library(arrow)
+library(fs)
 
 ```
 
@@ -19,13 +23,15 @@ library(stringr)
 southfl <- read_csv("data/southfl_rivers.csv")
 fl_rivers <- read_csv("data/flrivers_2.csv")
 fl_whole <- read_csv("data/florida_rivers_whole.csv")
+rivers_comids <- read_csv("data/rivers_with_comids.csv")
 
 ```
 
+## Generate both upstream and downstream flowlines
 
 ```{r}
 
-start_point <- st_sfc(st_point(c(-84.665276, 29.843610)), crs = 4269)
+start_point <- st_sfc(st_point(c(-84.203826, 30.108648)), crs = 4269)
 start_comid <- discover_nhdplus_id(start_point)
 
 # upstream
@@ -67,6 +73,8 @@ plot(start_point, cex = 1.5, lwd = 2, col = "red", add = TRUE)
 
 ```
 
+## Join flowlines together to create entire river
+
 ```{r}
 
 flowlines_joined  <- rbind(flowline, flowline2)
@@ -78,12 +86,13 @@ plot(start_point, cex = 1.5, lwd = 2, col = "red", add = TRUE)
 
 ```
 
+## View generated flowline
+
 ```{r}
 
 mapview(flowlines_joined)
 
 ```
-
 
 ## Read CSV
 
@@ -99,8 +108,6 @@ fl_rivers <- read_csv("data/flrivers_2.csv")
 ```{r}
 
 fl_whole[c('Latitude', 'Longitude')] <- str_split_fixed(fl_whole$Coordinates, ",", 2)
-
-
 
 ```
 
@@ -177,6 +184,7 @@ check_id <- function(latitude, longitude) {
 
 ```
 
+## Weed out invalid comids to reduce processing time
 
 ```{r}
 
@@ -192,30 +200,16 @@ fl_whole_sel_filtered <- fl_whole_sel |>
 
 ```
 
-
-
 ## Create flowlines and add them to a list
 
 ```{r}
 #| message: false
 
 river_list <- list()
-error_list <- list()
+#error_list <- list()
 
 
-for (i in 1:20) { # change range to loop through all or some of the data
-  #start_point <- st_sfc(st_point(c(as.numeric(fl_whole_sel_filtered$Longitude), 
-  #                                 as.numeric(fl_whole_sel_filtered$Longitude))), crs = 4269)
-  #print(start_point)
-  #start_comid <- discover_nhdplus_id(start_point)
-  #print(start_comid)
-
-  # skip over invalid COMIDS, and add it to error list
-  #
-  #{
-  #  error_list[[i]] = start_point
-  #  next
-  #}
+for (i in 400:nrow(fl_whole_sel_filtered)) { # change range to loop through all or some of the data
   
   # upstream
 
@@ -272,14 +266,97 @@ mapview(total_join)
 
 ```
 
-## Write shapefiles
+# Write shapefiles
+
+## Remove COMIDs that did not error, but were not correct flowlines when mapped
+## These were identified manually by mapping all of the flowlines
 
 ```{r}
 
-for(j in 1:length(river_list))
+inv_comid_list <- c(16770896, 16768898, 16768850, 16817625, 16843488,
+                    16843524, 16865885, 16865405, 16919464, 16933500, 16933464, 16933516, 
+                    16933608, 16933010, 16928546, 27724397, 16928404, 16928394, 16937796,
+                    16928382, 16928360, 16937780, 16928358, 16937774, 16950034, 16950036,
+                    3340748, 	3340712, 3340678, 3340530, 3340670, 3340668, 3340630, 3340660,
+                    3340656, 3340494, 3340654, 3340642, 3340658, 3340664, 3340638, 3340644, 
+                    3341226, 3341212, 3341036, 	3341032, 1987402, 1987400, 1990250, 1985310,
+                    1985272, 1985200, 1984980, 1985846, 1984812, 1984790, 1985398, 1985390,
+                    1978748, 1978744, 1978738, 1978736, 1978732, 1978728, 1978726, 1978722,
+                    1978764, 1978720, 1978754, 10318138, 10320354, 10320358, 10320368, 
+                    10320392, 10320404, 10320394, 10320400, 10320414, 10320502, 10320440,
+                    10320454, 10322654, 10320470, 10322706, 10322728, 10322750, 25902183,
+                    2179665, 	2179655, 2179721, 2179319, 2179143, 478793, 800201, 84128,
+                    16683859)
+
+fl_whole_final <- fl_whole_sel_filtered |>
+  filter(!(valid_comid %in% inv_comid_list))
+
+```
+
+## Write all the shapefiles
+
+```{r}
+
+for(j in 1:1)
 {
-  st_write(river_list[[1]], paste("test_writing/", comids[[j]], ".shp", sep = ""))
+
+  flowline <- navigate_nldi(list(featureSource = "comid", 
+                               featureID = fix$valid_comid[[j]]), 
+                          mode = "UM", 
+                          distance_km = 100)
+
+  subset_file <- tempfile(fileext = ".gpkg")
+  subset <- subset_nhdplus(comids = as.integer(flowline$UM$nhdplus_comid),
+                           output_file = subset_file,
+                           nhdplus_data = "download", 
+                           flowline_only = FALSE,
+                           return_data = TRUE, overwrite = TRUE)
+  
+  flowline <- subset$NHDFlowline_Network
+  
+  # downstream
+  
+  flowline_down <- navigate_nldi(list(featureSource = "comid", 
+                                featureID = fix$valid_comid[[j]]), 
+                                mode = "DM", 
+                                distance_km = 100)
+
+  subset_file_down <- tempfile(fileext = ".gpkg")
+  subset_down <- subset_nhdplus(comids = as.integer(flowline_down$DM_flowlines$nhdplus_comid),
+                           output_file = subset_file_down,
+                           nhdplus_data = "download", 
+                           flowline_only = FALSE,
+                           return_data = TRUE, overwrite = TRUE)
+  
+  
+  flowline_down <- subset_down$NHDFlowline_Network
+  
+  flowlines_joined <- rbind(flowline, flowline_down)
+  
+  st_write(flowlines_joined, paste("florida_flowlines/", fl_whole_final$valid_comid[[j]], ".shp", 
+                                   sep = ""), append = F)
 }
 
 ```
 
+## Move shape files to folders
+
+```{r}
+
+for(i in 2:nrow(fl_whole_final)) {
+  if(file_exists(paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]], ".dbf"))) {
+      
+    dir_create(paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]]))
+    file_move(paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]], ".dbf"),
+              paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]]))
+    file_move(paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]], ".prj"),
+              paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]]))
+    file_move(paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]], ".shp"),
+              paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]]))
+    file_move(paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]], ".shx"),
+              paste0("florida_flowlines/", fl_whole_final$valid_comid[[i]]))
+  }
+}
+
+
+```

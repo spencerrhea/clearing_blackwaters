@@ -1,0 +1,380 @@
+---
+title: "Comparing different rivers using LANDSAT and DSWE"
+author: "Krisztian Meszaros"
+output:
+    html_document:
+    toc: true
+    toc_depth: 2
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(sf)
+library(mapview)
+library(tidyverse)
+library(stringr)
+library(arrow)
+
+```
+
+## Uses data from the Chowan River, Aucilla River, and a small, sandy river
+## in Florida
+
+```{r}
+#| echo: false
+
+chowan <- read_feather("landsat_test_final/comparing_landsat_2/chowan.feather")
+chowan_dswe <- read_feather("landsat_test_final/comparing_landsat_2/chowan_dswe.feather")
+sandy <- read_feather("landsat_test_final/comparing_landsat_2/sandy_new/sandy.feather")
+sandy_dswe <- read_feather("landsat_test_final/comparing_landsat_2/sandy_new/sandy_dswe.feather")
+aucilla <- read_feather("landsat_test_final/comparing_landsat_2/aucilla.feather")
+aucilla_dswe <- read_feather("landsat_test_final/comparing_landsat_2/aucilla_dswe.feather")
+
+```
+
+# View an individual ID
+
+# Chowan River
+
+```{r}
+#| echo: false
+
+## Selected random ID values to test
+
+chowan_id <- chowan |>
+  filter(id == id[[1]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+chowan_dswe_id <- chowan_dswe |>
+  filter(id == chowan$id[[1]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+```
+
+```{r}
+#| echo: false
+
+chowan_join <- chowan_id |>
+  st_join(chowan_dswe_id)
+
+```
+
+```{r}
+#| echo: false
+
+mapview(chowan_join, zcol = "dswe", layer.name = "Chowan River - ID[1]")
+
+```
+
+```{r}
+#| echo: false
+
+chowan_id_2 <- chowan |>
+  filter(id == id[[10]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+chowan_dswe_id_2 <- chowan_dswe |>
+  filter(id == chowan$id[[10]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+```
+
+```{r}
+#| echo: false
+
+chowan_join_2 <- chowan_id_2 |>
+  st_join(chowan_dswe_id_2)
+
+```
+
+```{r}
+#| echo: false
+
+mapview(chowan_join_2, zcol = "dswe", layer.name = "Chowan River - ID[10]")
+
+```
+
+## Average DSWE values
+
+```{r}
+#| echo: false
+
+chowan_avg <- chowan |>
+  group_by(latitude, longitude) |>
+  summarise(mean_red = mean(Red, na.rm = T),
+            mean_green = mean(Green, na.rm = T),
+            mean_blue = mean(Blue, na.rm = T)) |>
+  ungroup() |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+  
+
+chowan_dswe_avg <- chowan_dswe |>
+  group_by(latitude, longitude) |>
+  summarise(
+    mean_dswe = mean(dswe, na.rm = T)
+  ) |>
+  ungroup() |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+
+```
+
+```{r}
+#| echo: false
+
+chowan_join_avg <- chowan_avg |>
+  st_join(chowan_dswe_avg)
+
+```
+
+```{r}
+
+mapview(chowan_join_avg, zcol = "mean_dswe", layer.name = "Chowan River - Mean DSWE")
+
+```
+
+
+## DSWE distribution
+
+```{r}
+#| echo: false
+
+chowan_dswe |>
+  group_by(dswe) |>
+  summarise(
+    num = n()
+  ) |>
+  ggplot(
+    aes(x = dswe, y = num)
+  ) +
+  geom_col()
+
+```
+
+# Sandy River in FL
+
+```{r}
+
+## Selected random ID values to test
+
+sandy_id <- sandy |>
+  filter(id == id[[1]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+sandy_dswe_id <- sandy_dswe |>
+  filter(id == sandy$id[[1]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+## second ID
+
+sandy_id2 <- sandy |>
+  filter(id == id[[10]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+sandy_dswe_id2 <- sandy_dswe |>
+  filter(id == sandy$id[[10]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+## third ID
+
+sandy_id3 <- sandy |>
+  filter(id == id[[20]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+sandy_dswe_id3 <- sandy_dswe |>
+  filter(id == sandy$id[[20]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+```
+
+```{r}
+
+sandy_joined_id <- sandy_id |>
+  st_join(sandy_dswe_id)
+
+sandy_joined_id2 <- sandy_id2 |>
+  st_join(sandy_dswe_id2)
+
+sandy_joined_id3 <- sandy_id3 |>
+  st_join(sandy_dswe_id3)
+
+```
+
+```{r}
+
+mapview(sandy_joined_id, zcol = "dswe", layer.name = "Sandy River - ID[1]")
+mapview(sandy_joined_id2, zcol = "dswe", layer.name = "Sandy River - ID[10]")
+mapview(sandy_joined_id3, zcol = "dswe", layer.name = "Sandy River - ID[20]")
+
+```
+
+## Dswe distribution
+
+```{r}
+
+sandy_dswe |>
+  group_by(dswe) |>
+  summarise(
+    num = n()
+  ) |>
+  ggplot(
+    aes(x = dswe, y = num)
+  ) +
+  geom_col()
+
+```
+
+## Average DSWE values
+
+```{r}
+#| echo: false
+
+sandy_avg <- sandy |>
+  group_by(latitude, longitude) |>
+  summarise(mean_red = mean(Red, na.rm = T),
+            mean_green = mean(Green, na.rm = T),
+            mean_blue = mean(Blue, na.rm = T)) |>
+  ungroup() |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+  
+
+sandy_dswe_avg <- sandy_dswe |>
+  group_by(latitude, longitude) |>
+  summarise(
+    mean_dswe = mean(dswe, na.rm = T)
+  ) |>
+  ungroup() |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+
+```
+
+```{r}
+#| echo: false
+
+sandy_joined <- sandy_avg |>
+  st_join(sandy_dswe_avg)
+
+```
+
+```{r}
+
+mapview(sandy_joined, zcol = "mean_dswe", layer.name = "Sandy River - Mean DSWE")
+
+```
+
+# Aucilla River
+
+```{r}
+#| echo: false
+
+aucilla_id <- aucilla |>
+  filter(id == id[[1]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+aucilla_dswe_id <- aucilla_dswe |>
+  filter(id == aucilla$id[[1]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+aucilla_id2 <- aucilla |>
+  filter(id == id[[10]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+aucilla_dswe_id2 <- aucilla_dswe |>
+  filter(id == aucilla$id[[10]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+aucilla_id3 <- aucilla |>
+  filter(id == id[[20]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+aucilla_dswe_id3 <- aucilla_dswe |>
+  filter(id == aucilla$id[[20]]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+```
+
+```{r}
+#| echo: false
+
+aucilla_join <- aucilla_id |>
+  st_join(aucilla_dswe_id)
+
+aucilla_join2 <- aucilla_id2 |>
+  st_join(aucilla_dswe_id2)
+
+aucilla_join3 <- aucilla_id3 |>
+  st_join(aucilla_dswe_id3)
+
+```
+
+```{r}
+#| echo: false
+
+mapview(aucilla_join, zcol = "dswe", layer.name = "Aucilla River - ID[1]")
+mapview(aucilla_join2, zcol = "dswe", layer.name = "Aucilla River - ID[10]")
+mapview(aucilla_join3, zcol = "dswe", layer.name = "Aucilla River - ID[20]")
+
+```
+
+## DSWE distribution
+
+```{r}
+
+aucilla_dswe |>
+  group_by(dswe) |>
+  summarise(
+    num = n()
+  ) |>
+  ggplot(
+    aes(x = dswe, y = num)
+  ) +
+  geom_col()
+
+```
+
+## Average DSWE values
+
+```{r}
+#| echo: false
+
+aucilla_avg <- aucilla |>
+  group_by(latitude, longitude) |>
+  summarise(mean_red = mean(Red, na.rm = T),
+            mean_green = mean(Green, na.rm = T),
+            mean_blue = mean(Blue, na.rm = T)) |>
+  ungroup() |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+  
+
+aucilla_dswe_avg <- aucilla_dswe |>
+  group_by(latitude, longitude) |>
+  summarise(
+    mean_dswe = mean(dswe, na.rm = T)
+  ) |>
+  ungroup() |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+
+```
+
+```{r}
+#| echo: false
+
+aucilla_joined_avg <- aucilla_avg |>
+  st_join(aucilla_dswe_avg)
+
+```
+
+```{r}
+
+mapview(aucilla_joined_avg, zcol = "mean_dswe", layer.name = "Aucilla River - Mean DSWE")
+
+```
+
+
