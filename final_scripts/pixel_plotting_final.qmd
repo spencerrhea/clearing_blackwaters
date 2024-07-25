@@ -1,0 +1,309 @@
+---
+title: Plotting remote sensing pixel data
+---
+
+## Library
+
+```{r}
+
+library(nhdplusTools)
+library(sf)
+library(mapview)
+library(tidyverse)
+library(stringr)
+library(arrow)
+library(fs)
+library(geosphere)
+
+```
+
+## Load in singular dataframes
+
+```{r}
+
+#feather = arrow::read_feather("feather_data/3350891.feather", as_data_frame=TRUE)
+feather_buf = arrow::read_feather("landsat_report/10462291 (1).feather", as_data_frame=TRUE)
+dswe = arrow::read_feather("landsat_report/10462291 (1) 1.feather", as_data_frame=TRUE)
+
+
+```
+
+## Load and combine multiple datasets (use either one below or above, not both) 
+
+```{r}
+
+
+file_list <- list.files("feather_data/ls_test_final/lsdata")
+
+
+combined <- read_feather(paste0("feather_data/ls_test_final/lsdata/", file_list[[1]]), as_data_frame=TRUE)
+
+for(i in 1:length(file_list))
+{
+  if(i == 1)
+  {
+    next
+  }
+  combined <- rbind(combined, 
+                    read_feather(paste0("feather_data/ls_test_final/lsdata/", file_list[[i]]), as_data_frame=TRUE))
+}
+
+
+```
+
+## Load in and combine dswes
+
+```{r}
+
+file_list <- list.files("feather_data/ls_test_final/lsdata_dswe/data_dswe")
+
+#change directories appropriately
+combined_dswe <- read_feather(paste0("feather_data/ls_test_final/lsdata_dswe/data_dswe/", file_list[[1]]), as_data_frame=TRUE)
+
+for(i in 1:length(file_list))
+{
+  if(i == 1)
+  {
+    next
+  }
+  combined_dswe <- rbind(combined_dswe, 
+                    read_feather(paste0("feather_data/ls_test_final/lsdata_dswe/data_dswe/", file_list[[i]]), as_data_frame=TRUE))
+}
+
+```
+
+## Filter for NA rows and combine/average points that have equal lat & long
+
+```{r}
+
+feather_filtered <- combined |>
+  group_by(latitude, longitude) |>
+  summarise(mean_red = mean(Red, na.rm = T),
+            mean_green = mean(Green, na.rm = T),
+            mean_blue = mean(Blue, na.rm = T)) |>
+  ungroup() |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+
+# not filtering for NAs or 0s here
+dswe_filt <- combined_dswe |>
+  filter(dswe != 0) |>
+  group_by(latitude, longitude) |>
+  summarise(
+    mean_dswe = mean(dswe)
+  ) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+
+```
+
+## Use mapview to plot and look through pixels
+
+```{r}
+
+pixel_map_joined <- feather_filtered |>
+  st_join(dswe_filt)
+
+mapview(pixel_map_joined, zcol = "mean_dswe")
+
+```
+
+## DSWE distribution
+
+```{r}
+
+combined_dswe |>
+  group_by(dswe) |>
+  summarise(
+    num = n()
+  )
+
+```
+
+# SENTINEL Testing
+
+## Read in singular files
+
+```{r}
+
+sentinel = arrow::read_feather("feather_data/sentinel_test/3350891 18.feather", as_data_frame=TRUE)
+
+```
+
+## Combine multiple files
+
+```{r}
+
+file_list <- list.files("feather_data/sentinel_test_final_2")
+
+sentinel <- read_feather(paste0("feather_data/sentinel_test_final_2/", file_list[[1]]), as_data_frame=TRUE)
+
+#comid_list <- c(3351045,  3351061, 3351063)
+
+for(i in 1:length(file_list)) {
+  if(i == 1)
+  {
+    next
+  }
+
+  sentinel <- rbind(sentinel, # change below directory to appropriate
+                    read_feather(paste0("feather_data/sentinel_test_final_2/", file_list[[i]]),
+                                 as_data_frame=TRUE))
+}
+
+
+```
+
+## If SWM not included in original dataset, then calculate SWM
+
+```{r}
+
+sentinel <- sentinel |>
+  mutate(
+    SWM = (Blue + Green) / (Nir + Swir1)
+  )
+
+```
+
+## Group by latitude and longitude
+
+```{r}
+
+sentinel_map <- sentinel |>
+  group_by(latitude, longitude) |>
+  summarise(
+    mean_swm = mean(SWM, na.rm = T)
+  ) |>
+  ungroup() |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+```
+
+## If dataset contains infinite values for SWM, convert to 1
+
+```{r}
+
+sentinel_map_rep <- sentinel_map |>
+  mutate(
+    mean_swm = if_else(mean_swm == Inf, 1, mean_swm)
+  )
+
+```
+
+## View pixels
+
+```{r}
+
+## Optional code for masking non-water pixels
+
+#sentinel_map_rep <- sentinel_map_rep |> 
+#  filter(mean_swm > 0.5)
+
+mapview(sentinel_map_rep, zcol = "mean_swm")
+
+```
+
+# Test the ability to filter points out using distance to a custom polygon
+# defining the coast manually made using Google Earth
+
+## Read in coastline shapefile and define point
+
+```{r}
+
+coast <- st_read("coast/coastlineshp/coastline-line.shp")
+
+## Using arbitrary point, comparing to distance given on Google Earth
+point <- c(-79.057021, 34.282783)
+
+```
+
+## Convert coastline to sets of coordinates
+
+```{r}
+
+coast <- st_coordinates(coast)
+coast <- coast[,1:2]
+
+```
+
+## Calculate distance
+
+```{r}
+
+dist <- dist2Line(p = point, line = coast, distfun = distGeo)
+
+dist
+
+```
+
+# Polygon testing
+
+## Uses data from the Chowan River and Aucilla River
+
+```{r}
+
+chowan_lat <- chowan |>
+  filter(id == id[[1]]) |>
+  group_by(latitude) |>
+  summarise(
+    mean_red = mean(Red),
+    mean_green = mean(Green),
+    mean_blue = mean(Blue),
+    mean_long = mean(longitude),
+    num = n()
+  ) |>
+  ungroup()
+
+aucilla_lat <- aucilla |>
+  filter(id == id[[10]]) |>
+  group_by(latitude) |>
+  summarise(
+    mean_red = mean(Red),
+    mean_green = mean(Green),
+    mean_blue = mean(Blue),
+    mean_long = mean(longitude),
+    num = n()
+  ) |>
+  ungroup()
+
+```
+
+```{r}
+
+# Initialize sf_list as a list
+sf_list <- list()
+
+max_clr_value <- max(max(chowan_lat$mean_red), max(chowan_lat$mean_green), max(chowan_lat$mean_blue))
+
+increment <- 10
+
+# Create a sequence with the specified increment
+for(i in seq(1, nrow(chowan_lat), by = increment)) {
+  # Select the subset of rows
+  sub <- chowan_lat[i:min(i + increment - 1, nrow(chowan_lat)), ]
+  
+  # Create a matrix of coordinates
+  coords <- as.matrix(sub %>% select(mean_long, latitude))
+  
+  # Create a LINESTRING object
+  line <- st_sfc(st_linestring(coords), crs = 4326)
+  
+  # Calculate the mean size and color
+  mean_size <- mean(sub$num)
+  clr <- rgb(mean(sub$mean_red), mean(sub$mean_green), mean(sub$mean_blue), maxColorValue = max_clr_value)
+  
+  # Wrap the LINESTRING in an sf object and add the size and color
+  aucilla_sf <- st_sf(geometry = line, size = mean_size, color = clr)
+  
+  # Append the sf object to the list
+  sf_list <- append(sf_list, list(aucilla_sf))
+}
+
+# Combine all sf objects into a single sf object
+sf_combined <- do.call(rbind, sf_list)
+
+# View the combined geometries with mapview using the size and color attributes
+mapview(sf_combined, lwd = "size", zcol = "color")
+
+```
+

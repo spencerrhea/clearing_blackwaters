@@ -1,0 +1,612 @@
+---
+title: "Progress Update + Graphing"
+author: "Krisztian Meszaros"
+output:
+    html_document:
+    toc: true
+    toc_depth: 2
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r}
+#| echo: false
+
+#library(nhdplusTools)
+library(sf)
+library(mapview)
+library(tidyverse)
+library(stringr)
+library(arrow)
+library(fs)
+library(geosphere)
+#library(boxr)
+library(scales)
+library(bit64)
+library(lubridate)
+library(leaflet)
+library(knitr)
+library(purrr)
+#library(ggmap)
+#library(opencage)
+
+```
+
+
+```{r}
+#| echo: false
+
+chowan <- read_feather("sentinel_testing/chowan.feather")
+aucilla <- read_feather("sentinel_testing/aucilla.feather")
+sentinel_id <- read_feather("sentinel_testing/sentinel_id.feather")
+
+
+```
+
+
+## Functions
+```{r}
+#| echo: FALSE
+
+normalize <- function(band)
+{
+  min <- min(band)
+  max <- max(band)
+  return((band - min)/(max - min))
+}
+
+normalize_ls <- function(band)
+{
+  min <- 0
+  max <- 416.17
+  return((band - min)/(max - min))
+}
+
+brighten <- function(band)
+{
+  alpha <- 0.0001
+  beta <- 0
+  return ((alpha * band) + beta)
+}
+
+gamma_corr <- function(band)
+{
+  gamma <- 1.4
+  return(band^(1/gamma))
+}
+
+sent2rgb <- function(band) {
+  min_val <- min(band)
+  max_val <- max(band)
+  return((band / (10000 - min_val)) / (max_val - min_val))
+}
+
+```
+
+## This is what we had last time - colors are probably displaying wrong but calculated correctly
+### This is pre-filtered to a certain id and water masked
+
+```{r}
+
+sentinel_id <- sentinel_id |>
+  mutate(
+    #red_scaled = (Red / (10000 - min(Red))) / (max(Red) - min(Red)),
+    #blue_scaled = (Blue / (10000 - min(Blue))) / (max(Blue) - min(Blue)),
+    #green_scaled = (Green / (10000 - min(Green))) / (max(Green) - min(Green)),
+    #red_scaled = if_else(red_scaled < 0, 0, red_scaled),
+    #blue_scaled = if_else(blue_scaled < 0, 0, blue_scaled),
+    #green_scaled = if_else(green_scaled < 0, 0, green_scaled),
+    #red_scaled = if_else(red_scaled > 1, 1, red_scaled),
+    #blue_scaled = if_else(blue_scaled > 1, 1, blue_scaled),
+    #green_scaled = if_else(green_scaled > 1, 1, green_scaled),
+    
+    red_norm = brighten(Red),
+    green_norm = brighten(Green),
+    blue_norm = brighten(Blue),
+    
+    red_norm = if_else(red_norm > 255, 255, red_norm),
+    green_norm = if_else(green_norm > 255, 255, green_norm),
+    blue_norm = if_else(blue_norm > 255, 255, blue_norm),
+    
+    red_norm = normalize(red_norm),
+    green_norm = normalize(green_norm),
+    blue_norm = normalize(blue_norm),
+    
+    clr = substr(rgb(red_norm, green_norm, blue_norm, 1), 1, 7)
+  ) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326)
+
+mapview(sentinel_id, col.regions = sentinel_id$clr, alpha.regions = 1)
+
+#sentinel_id |> ggplot(
+#  aes(x = longitude, y = latitude)
+#) +
+#  geom_point(color = sentinel_id$clr)
+
+```
+
+# Flowline testing
+## Map the flowlines, and use the color of the pixels to color the flowlines
+## To do this, I took all of the pixels with the same comid as the flowline, and averaged their rgb values together to get an average color, and then applied that to the flowline. Not sure if this is the best way to do it, but the only way I could think of. 
+## A potentinal issue is that things like bridges and stray points get average into the color, which can make a flowline have the wrong color (especially if there is only a few points, as you can see below). Not sure how to address this.
+
+```{r}
+
+fl_file_list <- list.dirs("Florida")
+
+first <- T
+
+for(i in 2:length(fl_file_list))
+{
+  
+  file <- fl_file_list[i]
+  if(str_split(fl_file_list[[i]], "/", n = Inf)[[1]][2] %in% sentinel_id$comid)
+  {
+    if(first)
+    {
+      fl_comb <- st_read(fl_file_list[[i]])
+      first <- F
+      next
+    }
+    
+    fl_comb <- rbind(fl_comb, st_read(fl_file_list[[i]]))
+  }
+  
+}
+
+```
+
+```{r}
+
+clr_list <- vector()
+
+for(i in 1:length(fl_comb$comid))
+{
+  pixels_in_comid <- sentinel_id |> filter(comid == as.character(fl_comb$comid[[i]]))
+  
+  if(nrow(pixels_in_comid) == 0)
+  {
+    clr_list <- append(clr_list, "NA")
+    next
+  }
+  to_rgb <- as.data.frame(t(col2rgb(pixels_in_comid$clr))) |>
+  summarise(
+    mean_red = mean(red),
+    mean_green = mean(green),
+    mean_blue = mean(blue),
+  )
+  
+  avg_color <- rgb(to_rgb$mean_red, to_rgb$mean_green, to_rgb$mean_blue, maxColorValue = 255)
+  
+  clr_list <- append(clr_list, avg_color)
+  
+}
+```
+
+```{r}
+
+fl_comb$clr <- clr_list
+
+fl_comb_map <- fl_comb |>
+  filter(clr != "NA")
+
+leaflet() %>%
+  addTiles() %>%
+  addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
+  addLayersControl(
+    baseGroups = c("OSM", "Satellite"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  addPolylines(data = fl_comb_map, color = ~clr, opacity = 1)
+
+```
+
+
+```{r}
+#| eval: false
+#| echo: false
+
+to_rgb <- as.data.frame(t(col2rgb(sentinel_line$clr))) |>
+  summarise(
+    mean_red = mean(red),
+    mean_green = mean(green),
+    mean_blue = mean(blue),
+  )
+
+avg_color <- rgb(to_rgb$mean_red, to_rgb$mean_green, to_rgb$mean_blue, maxColorValue = 255)
+
+fline$color <- avg_color
+
+mapview(fline, zcol = "color", lwd = 5)
+
+leaflet(data = fline) %>%
+  addTiles() %>%
+  addPolylines(color = ~color)
+
+
+
+```
+
+# Graphs
+
+## A graph of the mean reflectance over time of the mouth of the Aucilla River
+## I'm not sure what to make of the graph, if the blackwaters were getting clearer I would assume the mean reflectance to be going up. Also unsure if the trend is only due to a decrease in variance as you get into the later years. The actual change in the mean reflectance (~0.01) may be super insignificant.
+
+```{r}
+
+## Here are the points I am looking at
+aucilla |>
+  filter(latitude <= 30.095743) |>
+  filter(id == aucilla$id[1]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326) |>
+  mapview(layer.name = "The mouth of the Aucilla River")
+  
+
+aucilla |>
+  filter(latitude <= 30.095743) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>
+  mutate(
+    mean_reflectance = (Red + Green + Blue + Nir)/4,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date)    
+  ) |>
+  filter(mean_reflectance < 0.3) |>
+  group_by(date) |>
+  summarise(
+    avg_reflectance = mean(mean_reflectance)
+  ) |>
+  ggplot(
+    aes(x = date, y = avg_reflectance)
+  ) +
+  geom_point(alpha = 0.5, color = "#9e9e9e") +
+  geom_smooth(se = F, color = "black") +
+  labs(
+    title = "Mean surface reflectance by date",
+    subtitle = "Mouth of the Aucilla river, using Landsat 7",
+    y = "Mean Reflectance",
+    x = "Date"
+  ) +
+  theme_bw()
+
+```
+
+
+## Next, I tried to make a graph of "luminance" using a formula I found on stack overflow, and the graph looks almost identical to the reflectance graph above. This makes sense because the amount of light reflected should be correlated to how bright it is, but it is surprising that they have almost the exact same points even though they use very different formulas.
+
+```{r}
+
+aucilla |>
+  filter(latitude <= 30.095743) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>
+  mutate(
+    lum = 0.2126*Red + 0.7152*Green + 0.0722*Blue,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date)
+  ) |>
+  group_by(date) |>
+  summarise(
+    time = mode(time),
+    mean_red = mean(Red),
+    mean_green = mean(Green),
+    mean_blue = mean(Blue),
+    mean_lum = mean(lum)
+  ) |>
+  filter(mean_lum < 0.2) |>
+  ggplot(
+    aes(x = date, y = mean_lum)
+  ) +
+  theme_bw() +
+  geom_point(alpha = 0.5, color = "#9e9e9e") +
+  geom_smooth(se = F, color = "black")
+  
+
+
+```
+
+## I also tried the same graph with points more upstream, but the result was not much different
+
+```{r}
+
+## Points I was working with
+aucilla |>
+  filter(latitude >= 30.11532 & latitude <= 30.11914) |>
+  filter(id == aucilla$id[12]) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326) |>
+  mapview(layer.name = "Upstream Segment of the Aucilla River")
+
+aucilla |>
+  filter(latitude >= 30.11532 & latitude <= 30.11914) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>
+  mutate(
+    mean_reflectance = (Red + Green + Blue + Nir)/4,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date)    
+  ) |>
+  filter(mean_reflectance < 0.1) |>
+  group_by(date) |>
+  summarise(
+    avg_reflectance = mean(mean_reflectance)
+  ) |>
+  ggplot(
+    aes(x = date, y = avg_reflectance)
+  ) +
+  geom_point(alpha = 0.5, color = "#9e9e9e") +
+  geom_smooth(se = F, color = "black") +
+  labs(
+    title = "Mean surface reflectance by date",
+    subtitle = "Upstream segment of Aucilla river, using Landsat 7",
+    y = "Mean Reflectance",
+    x = "Date"
+  ) +
+  theme_bw()
+
+```
+
+## Did the same analysis for the Chowan River
+
+## Selected points
+
+```{r}
+#| echo: false
+
+chowan |>
+  filter(latitude <= 36.06495 | (latitude >= 36.17123 & latitude < 36.21279) | 
+           (latitude >= 36.41595 & latitude < 36.42893)) |>
+  filter(id == chowan$id[10]) |>
+  mutate(
+    segment = case_when(
+      latitude <= 36.06495 ~ "mouth",
+      latitude >= 36.17123 & latitude < 36.21279 ~ "middle",
+      latitude >= 36.41595 & latitude < 36.42893 ~ "upstream",
+      TRUE ~ "NA"
+    )
+  ) |>
+  st_as_sf(coords = c('longitude', 'latitude'), crs = 4326) |>
+  mapview(zcol = "segment")
+  
+
+
+```
+
+
+## Chowan mouth
+
+```{r}
+
+chowan |>
+  filter(latitude <= 36.06495) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>  
+  mutate(
+    mean_reflectance = (Red + Green + Blue + Nir)/4,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date)    
+  ) |>
+  filter(mean_reflectance < 0.3) |>
+  group_by(date) |>
+  summarise(
+    avg_reflectance = mean(mean_reflectance)
+  ) |>
+  ggplot(
+    aes(x = date, y = avg_reflectance)
+  ) +
+  geom_point(alpha = 0.5, color = "#9e9e9e") +
+  geom_smooth(se = F, color = "black") +
+  labs(
+    title = "Mean surface reflectance by date",
+    subtitle = "Mouth of the Chowan river, using Landsat 7",
+    y = "Mean Reflectance",
+    x = "Date"
+  ) +
+  theme_bw() +
+  
+  ylim(0, 0.1)
+
+```
+
+## Chowan mid river
+
+```{r}
+
+chowan |>
+  filter(latitude >= 36.17123 & latitude < 36.21279) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>  
+  mutate(
+    mean_reflectance = (Red + Green + Blue + Nir)/4,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date)    
+  ) |>
+  filter(mean_reflectance < 0.3) |>
+  group_by(date) |>
+  summarise(
+    avg_reflectance = mean(mean_reflectance)
+  ) |>
+  ggplot(
+    aes(x = date, y = avg_reflectance)
+  ) +
+  geom_point(alpha = 0.5, color = "#9e9e9e") +
+  geom_smooth(se = F, color = "black") +
+  labs(
+    title = "Mean surface reflectance by date",
+    subtitle = "Middle of Chowan River, using Landsat 7",
+    y = "Mean Reflectance",
+    x = "Date"
+  ) +
+  theme_bw() +
+  ylim(0, 0.1)
+
+```
+
+## Chowan far upstream
+
+```{r}
+
+chowan |>
+  filter(latitude >= 36.41595 & latitude < 36.42893) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>  
+  mutate(
+    mean_reflectance = (Red + Green + Blue + Nir)/4,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date)    
+  ) |>
+  filter(mean_reflectance < 0.3) |>
+  group_by(date) |>
+  summarise(
+    avg_reflectance = mean(mean_reflectance)
+  ) |>
+  ggplot(
+    aes(x = date, y = avg_reflectance)
+  ) +
+  geom_point(alpha = 0.5, color = "#9e9e9e") +
+  geom_smooth(se = F, color = "black") +
+  labs(
+    title = "Mean surface reflectance by date",
+    subtitle = "Upstream segment of Chowan river, using Landsat 7",
+    y = "Mean Reflectance",
+    x = "Date"
+  ) +
+  theme_bw() +
+  ylim(0, 0.1)
+
+```
+
+## Overall, the difference between the plots does not seem very significant to me, and all trend the same
+
+## Here, I took the average surface reflectance for each month and plotted it. Seems like there is a slight increase in the summer months, but the change is only about 0.01. I expected there to be more of a seasonal pattern, but maybe in the aggregate its less pronounced
+
+```{r}
+
+chowan |>
+  filter(latitude <= 36.06495) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>  
+  mutate(
+    mean_reflectance = (Red + Green + Blue + Nir)/4,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date),
+    month = as.factor(month(date))
+  ) |>
+  filter(mean_reflectance < 0.3) |>
+  group_by(month) |>
+  summarise(
+    avg_reflectance = mean(mean_reflectance)
+  ) |>
+  ggplot(
+    aes(x = month, y = avg_reflectance)
+  ) +
+  geom_point() +
+  labs(
+    title = "Mean surface reflectance by month",
+    subtitle = "Mouth of the Chowan river, using Landsat 7",
+    y = "Mean Reflectance",
+    x = "Month"
+  ) +
+  theme_bw() +
+  ylim(0, 0.1)
+
+```
+
+## Next, I attempted to graph the chlorophyll concentration in the water using the (Nir/Red) ratio, which I found to be correlated with cholorophyll on Google
+## This trend is what I expected given that chlorophyll increases in the summer, so confirms that our data is good at least.
+
+```{r}
+
+chowan |>
+  filter(latitude <= 36.06495) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>  
+  mutate(
+#    mean_reflectance = (Red + Green + Blue + Nir)/4,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date),
+    month = as.factor(month(date)),
+    chloro = Nir / Red
+  ) |>
+  group_by(month) |>
+  summarise(
+    mean_red = mean(Red),
+    mean_green = mean(Green),
+    mean_blue = mean(Blue),
+    mean_chloro = mean(chloro)
+  ) |>
+  ggplot(
+    aes(x = month, y = mean_chloro)
+  ) +
+  geom_point() +
+  theme_bw() +
+  labs(
+    title = "Mean Cholorophyll Concentration by Month",
+    subtitle = "Mouth of the Chowan river, using Landsat 7",
+    x = "Month",
+    y = "Mean Cholorophyll Concentration"
+  )
+
+```
+
+## Finally, I plotted the chlorophyll concentration over all 40 years. It seems to be generally unchanged, except for a thin spike at the end. On Google, I saw that there was an ongoing algal bloom in the Chowan that started on July 12, 2023, which is represented by the red line. When zooming in, (2nd graph), it does look like the spike happens around that date, so the two could be related. If you guys think this is valid, this could be something we include on our poster because I think its interesting and ties our data into an actual event.
+
+```{r}
+
+chowan |>
+  filter(latitude <= 36.06495) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>
+  mutate(
+    mean_reflectance = (Red + Green + Blue + Nir)/4,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date),
+    month = as.factor(month(date)),
+    chloro = Nir / Red
+  ) |>
+  group_by(date) |>
+  summarise(
+    mean_red = mean(Red),
+    mean_green = mean(Green),
+    mean_blue = mean(Blue),
+    mean_chloro = mean(chloro)
+  ) |>
+  ggplot(
+    aes(x = date, y = mean_chloro)
+  ) +
+  geom_point() +
+  geom_vline(xintercept = ymd("20230612"), color = "darkred") +
+  theme_bw() +
+  labs(
+    title = "Mean Cholorophyll Concentration across time",
+    subtitle = "data from the mouth of the Chowan river, using Landsat 7",
+    x = "Month",
+    y = "Mean Cholorophyll Concentration"
+  )
+
+chowan |>
+  filter(latitude <= 36.06495) |>
+  filter(str_split_fixed(id, '_', n = Inf)[,3] == "LE07") |>  
+  mutate(
+    mean_reflectance = (Red + Green + Blue + Nir)/4,
+    date = ymd(str_split_fixed(id, '_', n = Inf)[,5]),
+    date = if_else(is.na(date), ymd(str_split_fixed(id, '_', n = Inf)[,4]), date),
+    month = as.factor(month(date)),
+    chloro = Nir / Red
+  ) |>
+  filter(year(date) >= 2020) |>
+  group_by(date) |>
+  summarise(
+    mean_red = mean(Red),
+    mean_green = mean(Green),
+    mean_blue = mean(Blue),
+    mean_chloro = mean(chloro)
+  ) |>
+  ggplot(
+    aes(x = date, y = mean_chloro)
+  ) +
+  geom_point() +
+  geom_vline(xintercept = ymd("20230612"), color = "darkred") +
+  theme_bw() +
+  labs(
+    title = "Mean Cholorophyll Concentration across time",
+    subtitle = "data from the mouth of the Chowan river, using Landsat 7",
+    x = "Month",
+    y = "Mean Cholorophyll Concentration"
+  )
+
+```
+
+
+
+
