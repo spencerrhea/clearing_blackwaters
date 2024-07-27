@@ -1,0 +1,808 @@
+/* Basic Reset */
+body, h1, h2, h3, p, a {
+    margin: 0;
+    padding: 0;
+    text-decoration: none;
+    font-family: 'Montserrat', sans-serif;
+    text-align: center;
+}
+
+/* Header Styles */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: white;
+    padding: 20px 40px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.logo-container {
+    display: flex;
+    align-items: center;
+}
+
+.logo {
+    height: 50px; /* Set a reasonable height for the logo */
+}
+
+.title {
+    font-size: 2em; /* Increase font size */
+    font-weight: bold;
+    margin-left: 15px;
+    color: #0f0f0f;
+}
+
+.nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #0f0f0f;
+    min-height: 80px;
+    color: #0f0f0f;
+    padding: 10px 20px;
+    font-weight: bold;
+    font-size: 30px;
+}
+
+.nav-links {
+    list-style: none;
+    display: flex;
+    gap: 20px;
+}
+
+.nav-links a {
+    color: black;
+    font-weight: bold;
+    font-size: 20px;
+    transition: color 0.3s;
+}
+
+.nav-links a:hover {
+    color: #0073e6;
+}
+
+.contact-btn {
+    background-color: white;
+    color: black;
+    padding: 10px 20px;
+    border-radius: 4px;
+    border-color: #0f0f0f;
+    transition: background-color 0.3s;
+}
+
+.contact-btn:hover {
+    background-color: #0073e6;
+}
+
+/* Background Image Section */
+.bg-image {
+    height: 70vh; /* Adjust height as needed */
+    background-position: top;
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-attachment: fixed; /* Keeps the background fixed on scroll */
+}
+
+/* Hero Section Styles */
+.hero {
+    color: white;
+    text-align: left;
+    padding: 100px 40px;
+    position: relative;
+    height: 70vh; /* Adjust height as needed */
+    display: flex;
+    align-items: center;
+}
+
+.hero-content {
+    background-color: rgba(0, 0, 0, 0.9);
+    padding: 40px;
+    max-width: 500px;
+    margin-top: 230px;
+}
+
+.hero h1 {
+    font-size: 2.5em;
+    margin-bottom: 20px;
+}
+
+.hero p {
+    font-size: 1.2em;
+    margin-bottom: 20px;
+}
+
+.button {
+    display: inline-block;
+    background-color: white;
+    color: #0f0f0f;
+    padding: 10px 20px;
+    font-size: 1em;
+    border-radius: 4px;
+    text-transform: uppercase;
+    transition: background-color 0.3s ease;
+    text-align: center;
+}
+
+.button:hover {
+    background-color: #5d5e60;
+}
+
+/* Key Points Section */
+.key-points {
+    padding: 60px 300px;
+    text-align: center;
+    background-color: #f8f8f8;
+}
+
+.key-points h2 {
+    font-size: 2em;
+    margin-bottom: 40px;
+}
+
+.point {
+    display: flex;
+    align-items: center;
+    margin-bottom: 30px;
+    justify-content: flex-end;
+    gap: 20px;
+    text-align: left;
+}
+
+.point.reverse {
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+    text-align: right;
+}
+
+.point-icon {
+    width: 100px;
+    height: 100px;
+}
+
+.point-text {
+    max-width: 600px;
+    text-align: left;
+}
+
+.point-text h3 {
+    font-size: 1.5em;
+    margin-bottom: 10px;
+}
+
+.point-text p {
+    font-size: 1em;
+    color: #555;
+}
+
+/* Additional Text Section */
+.additional-text {
+    margin-top: 60px;
+    padding: 60px 40px;
+    text-align: center;
+    background-color: #fff;
+}
+
+.difference-title {
+    font-size: 2em;
+    font-weight: bold;
+    margin-bottom: 20px;
+}
+
+.difference-subtitle {
+    font-size: 1.2em;
+    max-width: 800px;
+    margin: 0 auto;
+    color: #555;
+}
+
+/* Change Management Section */
+.change-management {
+    background-color: #66b394; /* Set the background color */
+    padding: 60px 0;
+    border: 20px;
+    max-width: 1300px;
+    display: flex;
+    margin-left: 290px;
+    margin-top: 0px;
+    margin-right: 50px;
+    margin-bottom: 90px;
+    max-height: 1000px;
+}
+
+.change-management-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 1200px;
+    max-height: 900px;
+    margin-left: -250px;
+    margin-right: 80px;
+}
+
+.scroll-container {
+    background-color: #96b78c;
+    overflow-x: auto;
+    width: 1000px;
+    padding: 1px; /* Allow the container to take available space */
+    white-space: nowrap;
+}
+
+.scroll-inner-container {
+    white-space: nowrap;
+    width: 300%; /* Increase the width of the inner container */
+}
+
+.scroll-container img {
+    display: inline-block;
+    width: 800px; /* Set the width for the images */
+    height: 500px;
+    padding: 1px;
+    object-fit: cover; /* Ensure the image covers the area without stretching */
+    margin-right: 0px; /* Add margin between images if needed */
+}
+
+.change-management-text {
+    width: 70%;
+    color: white;
+    padding: 0 20px;
+    margin-left: 150px; /* Add margin to the left to create empty space */
+}
+
+.change-management-text h2 {
+    font-size: 2.5em;
+    font-weight: bold;
+    margin-bottom: 20px;
+}
+
+.change-management-text p {
+    font-size: 1.2em;
+    margin-bottom: 20px;
+}
+
+.learn-more-button {
+    display: inline-block;
+    background-color: white;
+    color: black;
+    padding: 10px 20px;
+    font-size: 1em;
+    border-radius: 15px;
+    text-decoration: none;
+    transition: background-color 0.3s ease;
+}
+
+.learn-more-button:hover {
+    background-color: #d0d0d0;
+}
+
+/* Project Hero Section Styles */
+.phero {
+    color: white;
+    text-align: left;
+    padding: 100px 40px;
+    position: relative;
+    height: 70vh; /* Adjust height as needed */
+    display: flex;
+    align-items: center;
+}
+
+.phero-content {
+    background-color: rgba(0, 0, 0, 0.9);
+    padding: 40px;
+    margin-top: 230px;
+    max-width: 500px;
+}
+
+.phero h1 {
+    font-size: 2.5em;
+    margin-bottom: 20px;
+}
+
+.phero p {
+    font-size: 1.2em;
+    margin-bottom: 20px;
+}
+
+.pbg-image {
+    height: 70vh; /* Adjust height as needed */
+    background-position: top;
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-attachment: fixed; /* Keeps the background fixed on scroll */
+}
+
+/* Ambitious Goals Section */
+.ambitious-goals {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-top: 160px;
+    padding: 60px 40px;
+    background-color: white;
+}
+
+.goals-content {
+    width: 600px;
+    padding-right: 20px;
+    margin-left: 30px;
+
+}
+
+.goals-title {
+    font-size: 2.5em;
+    font-weight: bold;
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.goals-text {
+    font-size: 1em;
+    margin-bottom: 20px;
+    color: #333;
+    text-align: left;
+}
+
+.goals-difference {
+    width: 600px;
+    background-color: #fff;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    overflow-x: auto; /* Enable horizontal scrolling */
+    white-space: nowrap; /* Keep items on the same line */
+    margin-right: 90px;
+}
+
+.goals-difference img {
+    width: 60px; /* Set a specific width */
+    height: auto; /* Maintain aspect ratio */
+    vertical-align: middle; /* Align the images properly */
+    margin-right: 10px; /* Space between the image and text */
+}
+
+
+.scroll-container2 {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.difference-title2 {
+    font-size: 1.8em;
+    font-weight: bold;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.difference-point {
+    display: flex;
+    align-items: center;
+    background-color: #f8f8f8;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    width: 100%;
+}
+
+.difference-icon {
+    width: 20px;
+    height: 20px;
+    margin-right: 40px;
+}
+
+.difference-point p {
+    font-size: 1.2em;
+    color: #333;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+.comparison-section {
+    display: flex;
+    padding: 20px;
+    background-color: #f0f0f0;
+}
+
+.comparison-container {
+    margin-left: 80px;
+    display: flex;
+    width: 1300px;
+    height: 400px;
+    margin-top: 80px;
+}
+
+.img-comp-container {
+    position:relative;
+    height:400px; /* Should be the same height as the images */
+    width: 600px; /* Adjust width as necessary */
+}
+
+.img-comp-img {
+    position: absolute;
+    width: auto;
+    height: auto;
+    overflow: hidden;
+}
+
+.img-comp-img img {
+    display: block;
+    vertical-align: middle;
+    object-fit: cover;
+    width: 500px;
+    height: 250px;
+}
+
+.img-comp-slider {
+    position: absolute;
+    z-index: 9;
+    cursor: ew-resize;
+    /* Set the appearance of the slider: */
+    width: 40px;
+    height: 40px;
+
+    background-color: #2196F3;
+    opacity: 0.7;
+    border-radius: 50%;
+}
+
+.comparison-text {
+    padding: 20px;
+    width: 50%; /* Adjust width as necessary */
+}
+
+.comparison-text h2 {
+    font-size: 1.5em;
+    margin-bottom: 10px;
+}
+
+.comparison-text p {
+    font-size: 1em;
+    color: #333;
+}
+
+.analysis-section {
+    padding: 40px;
+    background-color: #f0f0f0;
+    text-align: center;
+}
+
+.analysis-title {
+    font-size: 2em;
+    margin-bottom: 20px;
+}
+
+.analysis-map {
+    width: 100%;
+    height: 600px; /* Adjust height as needed */
+    margin: 0 auto;
+}
+
+.custom-contact-form-container {
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    width: 400px;
+    text-align: center;
+    margin: auto;
+    margin-top: 100px;
+}
+
+.custom-contact-form-title {
+    margin-top: 0;
+    font-size: 24px;
+}
+
+.custom-contact-form-description {
+    color: #6c757d;
+}
+
+.custom-contact-form-link {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.custom-contact-form-link:hover {
+    text-decoration: underline;
+}
+
+.custom-contact-form {
+    margin-top: 20px;
+}
+
+.custom-contact-form-label {
+    display: block;
+    text-align: left;
+    margin: 10px 0 5px;
+    font-weight: bold;
+}
+
+.custom-contact-form-input,
+.custom-contact-form-textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    box-sizing: border-box;
+}
+
+.custom-contact-form-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.custom-contact-form-button:hover {
+    background-color: #0056b3;
+}
+
+.topnav .icon {
+    display: none;
+}
+
+
+/* Media Queries for Mobile Devices */
+@media (max-width: 768px) {
+    header {
+        flex-direction: column; /* Change to column layout for mobile */
+        padding: 10px;
+    }
+
+    .logo-container {
+        justify-content: left; /* Center logo on mobile */
+        margin-bottom: 10px;
+        margin-left: -50px;
+    }
+
+    .title {
+        font-size: 1.2em; /* Adjust font size for mobile */
+    }
+
+    .nav-links {
+        display: none; /* Hide navigation links on mobile */
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .nav-links.active {
+        display: flex; /* Show navigation links when active */
+    }
+
+    .topnav a.icon {
+        display: block;
+        position: absolute;
+        right: 0;
+        top: 0;
+        padding: 32px 22px; /* Adjust padding as needed */
+        background: black; /* Background color of the icon */
+        color: white; /* Color of the icon (bars) */
+        cursor: pointer; /* Change cursor to pointer */
+    }
+
+    .nav-links a:hover {
+        background-color: #ddd;
+        color: black;
+    }
+
+    .icon:hover {
+        background-color: gray; /* Add gray hover color to icon */
+    }
+
+    .bg-image,
+    .hero,
+    .phero {
+        height: 50vh; /* Adjust height for mobile */
+    }
+
+    .hero-content,
+    .phero-content {
+        padding: 10px; /* Adjust padding for mobile */
+    }
+
+    .hero h1,
+    .phero h1 {
+        font-size: 1.5em; /* Adjust font size for mobile */
+    }
+
+    .hero p,
+    .phero p {
+        font-size: 1em; /* Adjust font size for mobile */
+    }
+
+    .key-points,
+    .additional-text,
+    .change-management,
+    .ambitious-goals,
+    .comparison-section,
+    .analysis-section {
+        padding: 20px; /* Adjust padding for mobile */
+    }
+
+    .point {
+        flex-direction: column; /* Change to column layout for mobile */
+        align-items: center;
+        text-align: center;
+    }
+
+    .point.reverse {
+        flex-direction: column; /* Change to column layout for mobile */
+        align-items: center;
+        text-align: center;
+    }
+
+    .point-icon {
+        margin-bottom: 10px; /* Add margin for mobile */
+    }
+
+    .point-text {
+        max-width: 100%; /* Adjust width for mobile */
+        text-align: center;
+    }
+
+    .goals-content,
+    .goals-difference {
+        width: 40%; /* Adjust width for mobile */
+        padding: 60px;
+    }
+
+    .goals-title {
+        text-align: center; /* Center text for mobile */
+    }
+
+    .change-management {
+        padding: 20px 10px; /* Adjust padding for mobile */
+        flex-direction: column; /* Change to column layout */
+        margin: 20px auto; /* Center align with auto margins */
+        max-width: 100%; /* Full width for mobile */
+        max-height: auto; /* Adjust height for mobile */
+    }
+
+    .change-management-content {
+        flex-direction: column; /* Change to column layout */
+        align-items: center; /* Center align items */
+        justify-content: center;
+        max-width: 100%; /* Full width for mobile */
+        margin: 0; /* Reset margins */
+    }
+
+    .scroll-container {
+        width: 100%; /* Full width for mobile */
+        padding: 0; /* Adjust padding */
+    }
+
+    .scroll-container img {
+        width: 100%; /* Full width for mobile */
+        height: 400px; /* Increase height for images */
+        object-fit: cover; /* Ensure the image covers the area without stretching */
+        margin-bottom: 10px; /* Add margin between images */
+    }
+
+    .change-management-text {
+        width: 100%; /* Full width for mobile */
+        padding: 20px; /* Adjust padding for mobile */
+        text-align: center; /* Center text for mobile */
+        margin: 20px 0; /* Adjust margins */
+    }
+
+    .scroll-inner-container {
+        display: flex;
+        flex-direction: row;
+    }
+
+    .img-comp-container {
+        width: 100%; /* Adjust width for mobile */
+        height: auto;
+    }
+
+    .custom-contact-form-container {
+        width: 100%; /* Adjust width for mobile */
+        max-width: 90%;
+    }
+    
+    /* Add these lines */
+    .ambitious-goals {
+        padding: 0px; /* Adjust padding for mobile */
+        display: flex;
+        margin-top: -20px;
+        flex-direction: column; /* Change to column layout for mobile */
+        align-items: center; /* Center align items */
+    }
+
+    .goals-content,
+    .goals-difference {
+        width: 100%; /* Adjust width for mobile */
+        
+        margin-right: 0px;
+    }
+
+    .goals-title {
+        text-align: center; /* Center text for mobile */
+    }
+
+    .scroll-container2 {
+        width: 100%; /* Full width for mobile */
+    }
+
+    .difference-point {
+        display: flex;
+        flex-direction: column; /* Change to column layout for mobile */
+        align-items: center;
+        text-align: center;
+        margin-left: -15px;
+        margin-bottom: 10px; /* Add margin for spacing */
+        width: 120%; /* Full width for mobile */
+        height: 120px;
+        padding: 10px; /* Add padding for spacing */
+        box-sizing: border-box; /* Include padding and border in element's total width and height */
+    }
+
+    .difference-icon {
+        margin-bottom: 10px; /* Add margin for mobile */
+        width: 50px; /* Adjust icon size for mobile */
+        height: 50px;
+    }
+    .comparison-section{
+        height: 700px;
+    }
+    .comparison-container {
+        flex-direction: column; /* Change to column layout for mobile */
+        align-items: center;
+        width: 100%; /* Adjust width for mobile */
+        margin: 0;
+    }
+
+    .img-comp-container {
+        width: 80%; /* Adjust width for mobile */
+        height: auto;
+        position: relative; /* Ensure the slider is positioned correctly */
+        margin-left: -60px;
+    }
+
+    .img-comp-img {
+        position: center;
+        width: 350px;
+        height: 200px;
+        overflow:hidden;
+    }
+
+    .img-comp-img img {
+        display:block;
+        vertical-align:middle;
+    }
+
+    .img-comp-slider {
+        width: 30px; /* Slider width */
+        height: 30px; /* Slider height */
+        background-color: #2196F3; /* Slider color */
+        opacity: 0.7; /* Slider opacity */
+        border-radius: 50%; /* Rounded slider */
+        position: absolute;
+        z-index: 9;
+        cursor: ew-resize;
+    }
+
+    .comparison-text {
+        margin-top: 200px;
+        width: 100%;
+        padding: 20px; /* Adjust padding for mobile */
+        text-align: center; /* Center text for mobile */
+    }
+
+    .comparison-text h2 {
+        font-size: 1.8em; /* Adjust font size for mobile */
+    }
+
+    .comparison-text p {
+        font-size: 1em; /* Adjust font size for mobile */
+        margin-bottom: 20px; /* Add margin for spacing */
+    }
+    
+}
+    
+

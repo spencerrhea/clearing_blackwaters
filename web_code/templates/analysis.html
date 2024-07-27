@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saltwater Intrusion Project</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='imgs/logo.svg') }}" type="image/svg+xml">
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script>
+        function toggleMenu() {
+            var x = document.getElementById("myLinks");
+            if (x.className === "nav-links") {
+                x.className += " active";
+            } else {
+                x.className = "nav-links";
+            }
+        }
+    </script>
+</head>
+<body>
+    <!-- Header with Navigation Bar -->
+    <header>
+        <div class="logo-container">
+            <a href="{{ url_for('home') }}">
+                <img src="{{ url_for('static', filename='imgs/logo.svg') }}" alt="Logo" class="logo">
+            </a>
+            <span class="title">Saltwater Intrusion</span>
+        </div>
+        <nav class="topnav">
+            <ul class="nav-links" id="myLinks">
+                <li><a href="{{ url_for('home') }}">Home</a></li>
+                <li><a href="{{ url_for('project') }}">Our Project</a></li>
+                <li><a href="{{ url_for('analysis') }}">Analysis</a></li>
+                <li><a href="{{ url_for('contact') }}" class="contact-btn">Contact</a></li>
+            </ul>
+            <a href="javascript:void(0);" class="icon" onclick="toggleMenu()">☰</a>
+        </nav>
+    </header>
+
+    <!-- Analysis Section -->
+    <section class="analysis-section">
+        <h2 class="analysis-title">Interactive Map Analysis</h2>
+        <p>text placeholder</p>
+        <div id="mapDiv" class="analysis-map" style="height: 800px;">
+            <iframe src="https://clearingblackwaters.shinyapps.io/rshinyapp/" height="1000px" width="100%" style="border:none;"></iframe>
+        </div>
+    </section>
+
+    <!-- Optional: Remove ArcGIS JavaScript if not needed -->
+    <!-- <script src="https://js.arcgis.com/3.26/"></script> -->
+    <!-- <script type="text/javascript">
+        require([
+            "dojo/parser",
+            "esri/map",
+            "esri/layers/GraphicsLayer",
+            "esri/graphic",
+            "esri/geometry/Point",
+            "esri/symbols/SimpleMarkerSymbol",
+            "esri/InfoTemplate",
+            "dojo/domReady!"
+        ], function(parser, Map, GraphicsLayer, Graphic, Point, SimpleMarkerSymbol, InfoTemplate) {
+            parser.parse();
+
+            var map = new Map("mapDiv", {
+                basemap: "topo",
+                center: [-95.7129, 37.0902], // long, lat
+                zoom: 4
+            });
+
+            var graphicsLayer = new GraphicsLayer();
+            map.addLayer(graphicsLayer);
+
+            document.getElementById('dataForm').onsubmit = function(event) {
+                event.preventDefault();
+                var filePrefix = document.getElementById('file_prefix').value;
+                fetch('/fetch_data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ file_prefix: filePrefix }),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert(data.error);
+                        return;
+                    }
+
+                    // Clear existing graphics
+                    graphicsLayer.clear();
+
+                    // Add GeoJSON data to the map
+                    var geojson = JSON.parse(data);
+                    geojson.features.forEach(function(feature) {
+                        var point = new Point(feature.geometry.coordinates[0], feature.geometry.coordinates[1]);
+                        var symbol = new SimpleMarkerSymbol().setStyle("circle").setColor("red");
+                        var attr = feature.properties;
+                        var infoTemplate = new InfoTemplate("Attributes", "${*}");
+                        var graphic = new Graphic(point, symbol, attr, infoTemplate);
+                        graphicsLayer.add(graphic);
+                    });
+                })
+                .catch(error => console.error('Error:', error));
+            };
+        });
+    </script> -->
+</body>
+</html>
