@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saltwater Intrusion Project</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='imgs/logo.svg') }}" type="image/svg+xml">
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script>
+        function toggleMenu() {
+            var x = document.getElementById("myLinks");
+            if (x.className === "nav-links") {
+                x.className += " active";
+            } else {
+                x.className = "nav-links";
+            }
+        }
+    </script>
+</head>
+<body>
+    <!-- Header with Navigation Bar -->
+    <header>
+        <div class="logo-container">
+            <a href="{{ url_for('home') }}">
+                <img src="{{ url_for('static', filename='imgs/logo.svg') }}" alt="Logo" class="logo">
+            </a>
+            <span class="title">Saltwater Intrusion</span>
+        </div>
+        <nav class="topnav">
+            <ul class="nav-links" id="myLinks">
+                <li><a href="{{ url_for('home') }}">Home</a></li>
+                <li><a href="{{ url_for('project') }}">Our Project</a></li>
+                <li><a href="{{ url_for('analysis') }}">Analysis</a></li>
+                <li><a href="{{ url_for('contact') }}" class="contact-btn">Contact</a></li>
+            </ul>
+            <a href="javascript:void(0);" class="icon" onclick="toggleMenu()">☰</a>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="bg-image" style="background-image: url('{{ url_for('static', filename='imgs/river.jpg') }}');">
+        <div class="hero">
+            <div class="hero-content">
+                <h1>Analyzing Salinity and Water Quality</h1>
+                <p>Using satellite imagery and color indicators to monitor the health of coastal blackwater rivers with advanced data analytics and interactive tools.</p>
+                <a href="{{ url_for('project') }}" class="button">Our Approach</a>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Additional Text Section -->
+    <section class="additional-text">
+        <h2 class="difference-title">What is saltwater intrusion?</h2>
+        <p class="difference-subtitle">
+            Saltwater intrusion occurs when saltwater from the ocean moves upstream into freshwater rivers, which can be caused by a number of different factors, many of which are linked to climate change, and it has significant impacts on coastal ecosystems.
+        </p>
+    </section>
+
+    <!-- Key Points Section -->
+    <section class="key-points">
+        <h2>Causes of Saltwater Intrusion</h2>
+        <div class="point reverse">
+            <div class="point-text">
+                <h3>SEA LEVEL RISE</h3>
+                <p>Sea water can encroach on coastal ecosystems</p>
+            </div>
+            <img src="{{ url_for('static', filename='imgs/sealevel.png') }}" alt="Icon 1" class="point-icon">
+        </div>
+        <div class="point">
+            <div class="point-text">
+                <h3>STORMS AND TIDES</h3>
+                <p>Can bring saltwater further inland</p>
+            </div>
+            <img src="{{ url_for('static', filename='imgs/storm.png') }}" alt="Icon 2" class="point-icon">
+        </div>
+        <div class="point reverse">
+            <div class="point-text">
+                <h3>DROUGHT</h3>
+                <p>Freshwater evaporates and allows saltwater to flow inland</p>
+            </div>
+            <img src="{{ url_for('static', filename='imgs/drought.png') }}" alt="Icon 3" class="point-icon">
+        </div>
+        <div class="point">
+            <div class="point-text">
+                <h3>WATER MANAGEMENT</h3>
+                <p>Ground and surface water extraction</p>
+            </div>
+            <img src="{{ url_for('static', filename='imgs/watermanagement.png') }}" alt="Icon 4" class="point-icon">
+        </div>
+        <div class="point reverse">
+            <div class="point-text">
+                <h3>CONNECTIVITY</h3>
+                <p>Canals, ditches, and dams</p>
+            </div>
+            <img src="{{ url_for('static', filename='imgs/connectivity.png') }}" alt="Icon 5" class="point-icon">
+        </div>
+    </section>
+
+    <section class="change-management">
+        <div class="change-management-content">
+            <div class="scroll-container">
+                <div class="scroll-inner-container">
+                    <img src="{{ url_for('static', filename='imgs/Ghost_Forest.png') }}" alt="Ghost Forest 1" class="scroll-image">
+                    <img src="{{ url_for('static', filename='imgs/ghostforest2.png') }}" alt="Ghost Forest 2" class="scroll-image">
+                    <img src="{{ url_for('static', filename='imgs/eutrophication.png') }}" alt="Eutrophication 1" class="scroll-image">
+                    <img src="{{ url_for('static', filename='imgs/eutrophication2.png') }}" alt="Eutrophication 2" class="scroll-image">
+                </div>
+            </div>
+            <div class="change-management-text">
+                <h2>Why do we care?</h2>
+                <p>Coastal forests can't tolerate high salinity, which alters soil composition and prevents seedlings from germinating. This leads to the decline of these forests, creating ghost forests.</p>
+                <p>Nutrient overloading in water bodies causes algal blooms. When these blooms die, they deplete oxygen, leading to the death of aquatic ecosystems.</p>
+                <a href="{{ url_for('project') }}" class="learn-more-button">Learn more about our approach.</a>
+            </div>
+        </div>
+    </section>
+    
+    
+</body>
+</html>

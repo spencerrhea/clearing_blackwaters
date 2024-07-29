@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saltwater Intrusion Project</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='imgs/logo.svg') }}" type="image/svg+xml">
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script>
+        function sendMail() {
+            var email = document.getElementById('email').value;
+            var message = document.getElementById('message').value;
+            var subject = "Saltwater Intrusion Questions";
+            var body = "Email: " + email + "\n" + message;
+            var mailto_link = 'mailto:spencer.rhea@duke.edu?cc=yabeizeng@gmail.com,dzhang0805@gmail.com,krisztianmeszaros0@gmail.com,jiahan8118@gmail.com&subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+            
+            window.location.href = mailto_link;
+        }
+
+        function toggleMenu() {
+            var x = document.getElementById("myLinks");
+            if (x.className === "nav-links") {
+                x.className += " active";
+            } else {
+                x.className = "nav-links";
+            }
+        }
+    </script>
+    <style>
+        .main-content {
+            flex: auto;
+            background-image: url('{{ url_for('static', filename='imgs/contact_back.png') }}');
+            background-size: cover;
+            background-position: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            height:800px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header with Navigation Bar -->
+    <header>
+        <div class="logo-container">
+            <a href="{{ url_for('home') }}">
+                <img src="{{ url_for('static', filename='imgs/logo.svg') }}" alt="Logo" class="logo">
+            </a>
+            <span class="title">Saltwater Intrusion</span>
+        </div>
+        <nav class="topnav">
+            <ul class="nav-links" id="myLinks">
+                <li><a href="{{ url_for('home') }}">Home</a></li>
+                <li><a href="{{ url_for('project') }}">Our Project</a></li>
+                <li><a href="{{ url_for('analysis') }}">Analysis</a></li>
+                <li><a href="{{ url_for('contact') }}" class="contact-btn">Contact</a></li>
+            </ul>
+            <a href="javascript:void(0);" class="icon" onclick="toggleMenu()">☰</a>
+        </nav>
+    </header>
+
+    <!-- Contact Form Section -->
+    <div class="main-content">
+        <!-- Contact Form Section -->
+        <div class="custom-contact-form-container">
+            <h1 class="custom-contact-form-title">Questions?</h1>
+            <p class="custom-contact-form-description">Explore our <a href="{{ url_for('project') }}" class="custom-contact-form-link">Project Page</a> or contact our team.</p>
+            <form class="custom-contact-form" onsubmit="sendMail(); return false;">
+                <label for="email" class="custom-contact-form-label">Email address*</label>
+                <input type="email" id="email" name="email" class="custom-contact-form-input" required>
+                
+                <label for="message" class="custom-contact-form-label">What can we help with?*</label>
+                <textarea id="message" name="message" class="custom-contact-form-textarea" required></textarea>
+                
+                <button type="submit" class="custom-contact-form-button">Send</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

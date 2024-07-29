@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saltwater Intrusion Project</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='imgs/logo.svg') }}" type="image/svg+xml">
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script>
+        function toggleMenu() {
+            var x = document.getElementById("myLinks");
+            if (x.className === "nav-links") {
+                x.className += " active";
+            } else {
+                x.className = "nav-links";
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <header>
+        <div class="logo-container">
+            <a href="{{ url_for('home') }}">
+                <img src="{{ url_for('static', filename='imgs/logo.svg') }}" alt="Logo" class="logo">
+            </a>
+            <span class="title">Saltwater Intrusion</span>
+        </div>
+        <nav class="topnav">
+            <ul class="nav-links" id="myLinks">
+                <li><a href="{{ url_for('home') }}">Home</a></li>
+                <li><a href="{{ url_for('project') }}">Our Project</a></li>
+                <li><a href="{{ url_for('analysis') }}">Analysis</a></li>
+                <li><a href="{{ url_for('contact') }}" class="contact-btn">Contact</a></li>
+            </ul>
+            <a href="javascript:void(0);" class="icon" onclick="toggleMenu()">☰</a>
+        </nav>
+    </header>
+    <!-- Hero Section -->
+    <section class="pbg-image" style="background-image: url('{{ url_for('static', filename='imgs/background2.png') }}');">
+        <div class="phero">
+            <div class="phero-content">
+                <h1>Analyzing Coastal River Health</h1>
+                <p>We employ satellite imagery and advanced color indicators to assess the salinity and water quality of coastal blackwater rivers. Leveraging cutting-edge data analytics and interactive tools, we provide insights and solutions to maintain and enhance the health of these critical ecosystems.</p>
+            </div>
+        </div>
+    </section>
+    <!-- Ambitious Goals Section -->
+    <section class="ambitious-goals">
+        <div class="goals-content">
+            <h2 class="goals-title">Analyzing Coastal Blackwater Rivers</h2>
+            <p class="goals-text">
+                We use satellite imagery to analyze the salinity and water quality of coastal blackwater rivers, focusing on color indicators like Chlorophyll-a, suspended sediment, and colored dissolved organic matter. This builds on Dr. John Gardner's research using Landsat and Sentinel-2 data through Google Earth Engine.
+            </p>
+            <p class="goals-text">
+                Our project employs Google Earth Engine, the National Hydrology Dataset, Python, and RStudio for data analysis. We also developed an interactive R Shiny app to visualize seasonal patterns and long-term changes in these ecosystems.
+            </p>
+            <p class="goals-text">
+                Our methodology involves compiling river mouth coordinates, mapping flowlines with the NHD package in R, and analyzing relevant pixels in Google Earth Engine. We expand the area of interest and use masks to filter non-water pixels, aiming to understand changes in salinity and water quality.
+            </p>
+        </div>
+        <div class="goals-difference">
+            <h3 class="difference-title2">Resources</h3>
+            <div class="scroll-container2">
+                <div class="difference-point">
+                    <img src="{{ url_for('static', filename='imgs/gee.png') }}" alt="Support" class="difference-icon">
+                    <p>GOOGLE EARTH ENGINE</p>
+                </div>
+                <div class="difference-point">
+                    <img src="{{ url_for('static', filename='imgs/code.png') }}" alt="Advice" class="difference-icon">
+                    <p>PYTHON & RSTUDIO</p>
+                </div>
+                <div class="difference-point">
+                    <img src="{{ url_for('static', filename='imgs/national.png') }}" alt="Alignment" class="difference-icon">
+                    <p>NATIONAL HYDROLOGY DATASET</p>
+                </div>
+                <div class="difference-point">
+                    <img src="{{ url_for('static', filename='imgs/satellite.png') }}" alt="Team" class="difference-icon">
+                    <p>LANDSAT & SENTINEL-2</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    <section class="comparison-section">
+        <div class="comparison-container">
+            <div class="img-comp-container">
+                <div class="img-comp-img">
+                    <img src="{{ url_for('static', filename='imgs/riverbefore.png') }}" alt="before" width="300" height="200">
+                </div>
+                <div class="img-comp-img img-comp-overlay">
+                    <img src="{{ url_for('static', filename='imgs/riverafter.png') }}" alt="after" width="300" height="200">
+                </div>
+            </div>
+            <div class="comparison-text">
+                <h2>Flowline Creation and Buffering</h2>
+                <p>To create an accurate flowline, we generate upstream and downstream segments from a coordinate point using the NHD, stitching them together to closely follow the river, especially near its mouth.</p>
+                <p>We consider all points within a given radius around the flowline, ensuring the entire river is analyzed, not just a central line. Then remove the land pixels to return the actual flowline.</p>
+            </div>
+        </div>
+    </section>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+</body>
+</html>
